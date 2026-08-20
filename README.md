@@ -2,6 +2,7 @@
 
 [![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fadventurewave-labs%2Faops-sre-pipeline)
 [![License: MIT](https://img.shields.io/badge/License-MIT-7c5cff.svg)](LICENSE)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/adventurewave-labs/aops-sre-pipeline)
 [![UAT: 10/10](https://img.shields.io/badge/UAT-10%2F10-4ade80.svg)](#-test-it)
 [![Latency: 23ms](https://img.shields.io/badge/E2E-23ms-00d4ff.svg)](#-test-it)
 
@@ -75,6 +76,36 @@ docker compose exec n8n-runner python3 scripts/run_uat.py
 ```
 
 End-to-end latency with `qwen2.5:0.5b` on CPU: **1.5–4 s**. Swap `OLLAMA_MODEL=llama3.1:8b` for higher-quality reasoning on a GPU host.
+
+
+### GitHub Codespaces (zero-setup, everything pre-installed)
+
+Click the badge above &mdash; or go to [codespaces.new/adventurewave-labs/aops-sre-pipeline](https://codespaces.new/adventurewave-labs/aops-sre-pipeline). 
+
+The Codespace will automatically:
+
+1. **Install everything** &mdash; Python 3.11, Docker-in-Docker, and all port forwardings
+2. **Start the full A.O.P.S. stack** in sandbox mode (all 5 services as plain Python processes)
+3. **Print a ready-to-use summary** with all service URLs
+
+Once the Codespace is ready:
+
+```bash
+# Fire the demo alert
+./run.sh alert
+
+# View the Slack card in the built-in browser (port 8003 auto-forwards)
+# Or click the forwarded port in the Ports panel
+
+# Run the full UAT suite
+python3 scripts/smoke_test.py
+python3 scripts/run_uat.py
+
+# For real LLM mode (Ollama + qwen2.5:0.5b):
+docker compose up -d
+```
+
+> **What's mocked?** The Kubernetes API, Slack, and Prometheus/Alertmanager are mock services so the demo is self-contained. The scanning, reasoning, tool-calling, and workflow orchestration are all real. See the [landing page](https://aops-sre-pipeline.vercel.app/#mocked) for a full breakdown.
 
 ## 📡 Service endpoints
 

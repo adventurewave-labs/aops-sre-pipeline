@@ -320,9 +320,154 @@
     .fade-2 { animation-delay: 0.15s; }
     .fade-3 { animation-delay: 0.25s; }
     .fade-4 { animation-delay: 0.35s; }
+  
+    /* ============ demo banner ============ */
+    .demo-banner {
+      background: linear-gradient(90deg, #ff5c8a 0%, #fbbf24 50%, #ff5c8a 100%);
+      background-size: 200% 100%;
+      animation: bannerShimmer 3s ease-in-out infinite;
+      text-align: center;
+      padding: 10px 24px;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: #0a0c10;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    @keyframes bannerShimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    /* ============ mock callout section ============ */
+    .mock-section {
+      padding: 60px 0;
+    }
+    .mock-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 32px;
+    }
+    @media (max-width: 760px) { .mock-grid { grid-template-columns: 1fr; } }
+    .mock-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+    }
+    .mock-card h4 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mock-card p {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+    .mock-card ul {
+      margin-top: 8px;
+      padding-left: 18px;
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+    .mock-card ul li::marker {
+      color: var(--text-mute);
+    }
+    .mock-card code {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      background: var(--bg-soft);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent-2);
+    }
+    .tag-mock {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--bad);
+      color: white;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .tag-real {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--good);
+      color: #0a0c10;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .mock-note {
+      text-align: center;
+      margin-top: 24px;
+      padding: 16px 24px;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+    .mock-note strong {
+      color: var(--text);
+    }
+
+    /* ============ codespaces CTA ============ */
+    .codespaces-cta {
+      text-align: center;
+      margin-top: 28px;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-codespace {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn-codespace:hover { transform: translateY(-1px); }
+    .btn-codespace.primary {
+      background: linear-gradient(135deg, #00d4ff, #7c5cff);
+      color: white;
+      box-shadow: 0 4px 20px rgba(124, 92, 255, 0.3);
+    }
+    .btn-codespace.secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
   </style>
 </head>
 <body>
+
+
+<!-- ==================== DEMO BANNER ==================== -->
+<div class="demo-banner">
+  &#9888;&nbsp; THIS IS A DEMO &mdash; self-contained, no real infrastructure required
+</div>
 
 <!-- ==================== NAV ==================== -->
 <nav class="top">
@@ -335,6 +480,7 @@
       <li><a href="#demo">Demo</a></li>
       <li><a href="#architecture">Architecture</a></li>
       <li><a href="#components">Components</a></li>
+      <li><a href="#mocked">Real vs. Mocked</a></li>
       <li><a href="#uat">UAT</a></li>
       <li><a href="#quickstart">Quickstart</a></li>
     </ul>
@@ -493,6 +639,73 @@
         <p>Lightweight workflow executor that loads the same <code>aops-workflow.json</code> that real n8n imports. Replaces with <code>n8nio/n8n:latest</code> in 30 seconds.</p>
         <div class="replace">Replaces: <code>n8n (official image)</code></div>
       </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ==================== WHAT'S REAL vs. MOCKED ==================== -->
+<section id="mocked" class="mock-section">
+  <div class="wrap">
+    <h2>What's real &amp; what's mocked</h2>
+    <p class="lead">Every component in this pipeline is <strong>real, runnable code</strong> &mdash; but some talk to fake backends so the demo is self-contained. Here's exactly what's what.</p>
+
+    <div class="mock-grid">
+      <div class="mock-card">
+        <h4><span class="tag-mock">Mocked</span> Kubernetes API</h4>
+        <p>The <code>mock-k8s-api</code> serves a deterministic 2-node cluster with 6 deliberately broken resources. No real kube-apiserver is needed. The mock implements a subset of the K8s REST API (<code>/api/v1/namespaces/&#8230;</code>, <code>/apis/apps/v1/&#8230;</code>) with Bearer-token auth.</p>
+        <ul>
+          <li>2 Nodes (one healthy, one with DiskPressure at 92%)</li>
+          <li>2 broken Deployments (ImagePullBackOff, CrashLoopBackOff)</li>
+          <li>1 dangling Ingress (references a non-existent Service)</li>
+          <li>1 Pending PVC (StorageClass was deleted)</li>
+          <li>1 Service with zero endpoints</li>
+        </ul>
+        <p><strong>Swap:</strong> point <code>MOCK_K8S_URL</code> at your real apiserver to scan live clusters.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-mock">Mocked</span> Slack</h4>
+        <p>The <code>mock-slack</code> service receives incoming-webhook payloads and renders a Slack-card HTML page at <code>http://localhost:8003</code>. No Slack workspace, bot token, or incoming-webhook URL is required.</p>
+        <p><strong>Swap:</strong> change the n8n workflow's last node to POST to your real Slack incoming-webhook URL.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-mock">Mocked</span> Prometheus / Alertmanager</h4>
+        <p>The <code>alert.sh</code> script sends a single pre-built Alertmanager JSON payload (<code>PaymentAPIHighErrorRate</code>, 12.3% 5xx) directly to the n8n webhook. No real Prometheus, Alertmanager, or metrics scrape target is needed.</p>
+        <p><strong>Swap:</strong> configure a real Alertmanager to fire the same webhook to n8n.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-real">Real</span> Popeye Scanner</h4>
+        <p>The <code>popeye-scanner</code> is a fully functional rules engine with 14 analyzers and 100+ checks. It queries the K8s API, evaluates cluster state against real Popeye severity codes (NO-002, DPL-000, POP-001, ING-001, PVC-001, etc.), and emits standard Popeye-shaped sanitizer JSON. The only difference from upstream Popeye is that it talks to the mock API instead of a live cluster.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-real">Real</span> Dify-lite Agent</h4>
+        <p>The <code>dify-lite</code> service is a real FastAPI app implementing an OpenAI-compatible chat-completions endpoint with a 2-round agentic tool-calling loop. In sandbox mode it uses a deterministic stub; in Docker mode it calls a real Ollama LLM (<code>qwen2.5:0.5b</code>). The tool-calling, prompt engineering, and output formatting are all production-grade.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-real">Real</span> n8n Workflow</h4>
+        <p>The <code>aops-workflow.json</code> is a fully importable n8n workflow definition. The <code>n8n-runner</code> is a lightweight Python re-implementation that executes the same graph. In Docker mode you can swap it for the official <code>n8nio/n8n:latest</code> image and import the JSON directly &mdash; no code changes needed.</p>
+      </div>
+    </div>
+
+    <div class="mock-note">
+      <strong>The tl;dr:</strong> The &ldquo;intelligence&rdquo; (Popeye scanning, agent reasoning, tool-calling, workflow orchestration) is all real.
+      The &ldquo;infrastructure&rdquo; (K8s cluster, Slack, Prometheus) is mocked so you can run the full pipeline on a laptop, in a Codespace, or air-gapped &mdash; zero external dependencies.
+    </div>
+
+    <div class="codespaces-cta">
+      <a class="btn-codespace primary" href="https://codespaces.new/adventurewave-labs/aops-sre-pipeline" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>
+        Open in GitHub Codespaces
+      </a>
+      <a class="btn-codespace secondary" href="https://github.com/adventurewave-labs/aops-sre-pipeline" target="_blank" rel="noopener">
+        <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38C13.71 14.53 16 11.54 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        View Source on GitHub
+      </a>
     </div>
   </div>
 </section>

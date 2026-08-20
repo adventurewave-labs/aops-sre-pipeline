@@ -1,0 +1,49 @@
+{
+  "name": "A.O.P.S. SRE Pipeline",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "dockerDashComposeVersion": "v2.24.0"
+    }
+  },
+  "forwardPorts": [
+    5678,
+    8001,
+    8002,
+    8003,
+    8004,
+    11434
+  ],
+  "portsAttributes": {
+    "8003": {
+      "label": "Mock Slack (view alerts)",
+      "onAutoForward": "openPreview"
+    },
+    "5678": {
+      "label": "n8n Runner (webhook)"
+    },
+    "8001": {
+      "label": "Mock K8s API"
+    },
+    "8002": {
+      "label": "Dify-lite Agent"
+    },
+    "8004": {
+      "label": "Popeye Scanner"
+    },
+    "11434": {
+      "label": "Ollama LLM"
+    }
+  },
+  "postCreateCommand": "chmod +x run.sh services/prometheus-mock/alert.sh && ./run.sh up-no-ollama && echo '' && echo '========================================' && echo '  A.O.P.S. stack is LIVE in Codespace!' && echo '========================================' && echo '' && echo 'Ports:' && echo '  Mock Slack UI .... http://localhost:8003' && echo '  n8n Runner ...... http://localhost:5678' && echo '  Mock K8s API .... http://localhost:8001' && echo '  Popeye Scanner .. http://localhost:8004' && echo '  Dify-lite Agent . http://localhost:8002' && echo '' && echo 'Fire an alert:' && echo '  ./run.sh alert' && echo '  ./run.sh status' && echo ''",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python3"
+      }
+    }
+  }
+}
