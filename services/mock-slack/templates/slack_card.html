@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>A.O.P.S. — Mock Slack #devops-alerts</title>
+  <style>
+    body { margin:0; background:#1a1d21; color:#f0f0f0;
+           font-family:'DejaVu Sans','Noto Sans',system-ui,sans-serif; }
+    .channel-header { padding:14px 18px; border-bottom:1px solid #2c2f33;
+                       color:#9fa0a4; font-size:13px; }
+    .channel-header b { color:#fff; font-size:16px; }
+    .msg { padding:14px 18px; border-bottom:1px solid #2c2f33; }
+    .msg .head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+    .msg .avatar { width:36px; height:36px; border-radius:4px; background:#5d3bf2;
+                   display:flex; align-items:center; justify-content:center;
+                   font-weight:700; color:#fff; font-size:13px; }
+    .msg .user { color:#fff; font-weight:700; font-size:14px; }
+    .msg .ts { color:#9fa0a4; font-size:12px; margin-left:auto; }
+    .card { background:#2c2f36; border-left:4px solid #ff5c5c;
+            border-radius:6px; padding:14px 18px; }
+    .card .title { font-weight:700; font-size:14px; color:#fff;
+                   margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+    .card .title .icon { color:#ff5c5c; }
+    .card .meta { font-size:12px; color:#9fa0a4; margin-bottom:10px; }
+    .card pre { background:#1a1d21; color:#7dceff; padding:10px 12px;
+                border-radius:4px; overflow-x:auto; font-size:12px;
+                font-family:'DejaVu Sans Mono','Sarasa Mono SC',monospace; }
+    .card .md { color:#d0d0d0; font-size:13px; line-height:1.5;
+                white-space:pre-wrap; word-break:break-word; }
+    .card .md h1 { color:#fff; font-size:15px; margin:8px 0 4px 0; }
+    .card .md h2 { color:#fff; font-size:13px; margin:10px 0 4px 0;
+                   text-transform:uppercase; letter-spacing:.04em; }
+    .card .md ul { margin:4px 0 4px 18px; padding:0; }
+    .card .md code { background:#1a1d21; color:#7dceff; padding:1px 4px;
+                     border-radius:3px; font-family:'DejaVu Sans Mono',monospace;
+                     font-size:12px; }
+    .card .md pre { display:block; padding:10px 12px; margin:6px 0; }
+    .empty { padding:60px 20px; text-align:center; color:#6b6e72;
+             font-style:italic; }
+  </style>
+</head>
+<body>
+  <div class="channel-header">
+    <b># devops-alerts</b><br>
+    A.O.P.S. autonomous SRE pipeline · {{ total_alerts }} alerts · last update {{ last_update }}
+  </div>
+  {% if not alerts %}
+    <div class="empty">
+      No alerts yet. Trigger one with:<br>
+      <code>curl -X POST {{ webhook_url }} -d '{"alert":"PaymentAPIHighErrorRate"}'</code>
+    </div>
+  {% else %}
+    {% for a in alerts %}
+    <div class="msg">
+      <div class="head">
+        <div class="avatar">AU</div>
+        <div class="user">AURA-SRE Bot</div>
+        <div class="ts">{{ a.ts }}</div>
+      </div>
+      <div class="card">
+        <div class="title"><span class="icon">⚠</span> {{ a.alert_name }}</div>
+        <div class="meta">namespace: <code>{{ a.namespace }}</code> ·
+                         severity: <code>{{ a.severity }}</code> ·
+                         score: <code>{{ a.score }}/100 ({{ a.grade }})</code></div>
+        {% if a.error %}
+          <pre>ERROR: {{ a.error }}</pre>
+        {% else %}
+          <div class="md">{{ a.remediation_html | safe }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+</body>
+</html>

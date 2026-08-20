@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# A.O.P.S. runtime state (logs, pids, cast files, demo GIFs)
+aops/var/
+**/var/
+*.cast
+*.gif
+!docs/**/*.gif
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.local
+*.local
+
+# Logs
+*.log
+logs/

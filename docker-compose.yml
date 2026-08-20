@@ -1,0 +1,170 @@
+# A.O.P.S. stack — Automated Off-the-shelf Pipeline SRE.
+#
+# Six services wired into one alert-driven remediation pipeline:
+#
+#   Prometheus (external)
+#        ↓ Alertmanager webhook
+#   n8n-runner (port 5678)            [webhook + workflow executor]
+#        ↓ HTTP
+#   mock-k8s-api (port 8001)          [mock Kubernetes API for payment-prod]
+#        ↑ query
+#   popeye-scanner (port 8004)        [Popeye-shaped sanitizer JSON]
+#        ↓ POST Popeye JSON
+#   dify-lite (port 8002)             [FastAPI agent + tool-calling]
+#        ↓ OpenAI-compat
+#   ollama (port 11434)               [LLM backend, e.g. qwen2.5:0.5b]
+#        ↓ remediation text
+#   mock-slack (port 8003)            [Slack-card HTML receiver]
+#
+# Replace `mock-n8n-runner` with the official `n8nio/n8n:latest` image if you
+# want a real n8n instance — the workflow JSON in
+# services/n8n-runner/aops-workflow.json is fully n8n-importable.
+
+services:
+
+  mock-k8s-api:
+    build: ./services/mock-k8s-api
+    image: aops/mock-k8s-api:0.1
+    container_name: aops-mock-k8s-api
+    ports: ["8001:8001"]
+    environment:
+      MOCK_K8S_HOST: "0.0.0.0"
+      MOCK_K8S_PORT: "8001"
+      MOCK_K8S_TOKEN: "aops-demo-token"
+      MOCK_K8S_DISABLE_AUTH: "0"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+  popeye-scanner:
+    build: ./services/popeye-scanner
+    image: aops/popeye-scanner:0.1
+    container_name: aops-popeye-scanner
+    ports: ["8004:8004"]
+    depends_on:
+      mock-k8s-api:
+        condition: service_healthy
+    environment:
+      POPEYE_HOST: "0.0.0.0"
+      POPEYE_PORT: "8004"
+      MOCK_K8S_URL: "http://mock-k8s-api:8001"
+      MOCK_K8S_TOKEN: "aops-demo-token"
+      AOPS_NAMESPACE: "payment-prod"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8004/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+  ollama:
+    image: ollama/ollama:0.3.12
+    container_name: aops-ollama
+    ports: ["11434:11434"]
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:11434/api/tags || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    networks: [aops-net]
+
+  ollama-pull:
+    # One-shot: pull the model after ollama is up. Idempotent — if the model
+    # is already present, it exits 0 quickly.
+    image: ollama/ollama:0.3.12
+    container_name: aops-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: "qwen2.5:0.5b"
+    entrypoint: ["sh", "-c"]
+    command: >
+      "ollama pull qwen2.5:0.5b && echo 'model pulled'"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks: [aops-net]
+    restart: "no"
+
+  dify-lite:
+    build: ./services/dify-lite
+    image: aops/dify-lite:0.1
+    container_name: aops-dify-lite
+    ports: ["8002:8002"]
+    depends_on:
+      popeye-scanner:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      DIFY_LITE_HOST: "0.0.0.0"
+      DIFY_LITE_PORT: "8002"
+      AOPS_LLM_BACKEND: "auto"
+      OLLAMA_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "qwen2.5:0.5b"
+      MOCK_K8S_URL: "http://mock-k8s-api:8001"
+      MOCK_K8S_TOKEN: "aops-demo-token"
+      AOPS_MAX_AGENT_ROUNDS: "2"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8002/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+  mock-slack:
+    build: ./services/mock-slack
+    image: aops/mock-slack:0.1
+    container_name: aops-mock-slack
+    ports: ["8003:8003"]
+    environment:
+      MOCK_SLACK_HOST: "0.0.0.0"
+      MOCK_SLACK_PORT: "8003"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8003/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+  n8n-runner:
+    build: ./services/n8n-runner
+    image: aops/n8n-runner:0.1
+    container_name: aops-n8n-runner
+    ports: ["5678:5678"]
+    depends_on:
+      popeye-scanner:
+        condition: service_healthy
+      dify-lite:
+        condition: service_healthy
+      mock-slack:
+        condition: service_healthy
+    environment:
+      N8N_RUNNER_HOST: "0.0.0.0"
+      N8N_RUNNER_PORT: "5678"
+      POPEYE_URL: "http://popeye-scanner:8004"
+      DIFY_LITE_URL: "http://dify-lite:8002"
+      MOCK_SLACK_URL: "http://mock-slack:8003"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5678/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+volumes:
+  ollama-models:
+
+networks:
+  aops-net:
+    driver: bridge
