@@ -82,6 +82,13 @@ print(d.get('service') or d.get('scanner') or d.get('status','?'))
 done
 
 echo ""
+echo -e "${dim}This sandbox runs all five services as plain Python processes."
+echo -e "On any Docker host, the same code runs via:${reset}"
+echo -e "${bold}▸ cat docker-compose.yml | head -30${reset}"
+sed -n '1,30p' docker-compose.yml | sed 's/^/  /'
+sleep 1.5
+
+echo ""
 echo -e "${dim}Cluster state (mock Kubernetes API):${reset}"
 echo -e "${bold}▸ curl -s -H 'Authorization: Bearer aops-demo-token' \\"
 echo -e "      http://localhost:8001/api/v1/nodes${reset}"

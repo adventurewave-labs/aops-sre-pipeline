@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A.O.P.S. — Automated Off-the-shelf Pipeline SRE</title>
+  <meta name="description" content="An open-source, alert-driven autonomous SRE pipeline: Prometheus → n8n → Popeye → Dify-lite → Ollama → Slack. 10/10 UAT pass, 23ms end-to-end latency.">
+  <meta property="og:title" content="A.O.P.S. — Automated Off-the-shelf Pipeline SRE">
+  <meta property="og:description" content="Open-source alert-driven autonomous SRE pipeline. Catches a Prometheus alert → scans the cluster → reasons through the findings → posts a Slack card with the fix.">
+  <meta property="og:image" content="aops-demo-poster.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%235d3bf2'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
+  <style>
+    /* ============ design tokens ============ */
+    :root {
+      --bg:        #0a0c10;
+      --bg-soft:   #11141b;
+      --card:      #161922;
+      --border:    #232936;
+      --text:      #e6e8ec;
+      --text-dim:  #8a92a6;
+      --text-mute: #5a6275;
+      --accent:    #7c5cff;
+      --accent-2:  #00d4ff;
+      --accent-3:  #ff5c8a;
+      --good:      #4ade80;
+      --warn:      #fbbf24;
+      --bad:       #f87171;
+      --mono:      'JetBrains Mono','DejaVu Sans Mono','Sarasa Mono SC',ui-monospace,monospace;
+      --sans:      'Inter','DejaVu Sans','Noto Sans SC',system-ui,-apple-system,sans-serif;
+      --max:       1180px;
+    }
+
+    /* ============ reset ============ */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--sans); }
+    body { font-size: 16px; line-height: 1.6; overflow-x: hidden; }
+    a { color: inherit; text-decoration: none; }
+    code, pre { font-family: var(--mono); }
+    ::selection { background: var(--accent); color: white; }
+
+    /* ============ layout ============ */
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+
+    /* ============ nav ============ */
+    nav.top {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10,12,16,0.7);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav.top .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 24px; max-width: var(--max); margin: 0 auto;
+    }
+    .logo {
+      font-family: var(--mono); font-weight: 700;
+      letter-spacing: 0.04em; font-size: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo .mark {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-3));
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-weight: 900; font-size: 13px; color: white;
+    }
+    nav.top ul { display: flex; gap: 24px; list-style: none; }
+    nav.top ul a { color: var(--text-dim); font-size: 13px; font-weight: 500; transition: color 0.2s; }
+    nav.top ul a:hover { color: var(--text); }
+    .nav-cta {
+      font-size: 13px; font-weight: 600;
+      padding: 7px 14px; border-radius: 7px;
+      background: var(--text); color: var(--bg);
+      transition: transform 0.15s;
+    }
+    .nav-cta:hover { transform: translateY(-1px); }
+
+    @media (max-width: 720px) {
+      nav.top ul { display: none; }
+    }
+
+    /* ============ hero ============ */
+    .hero {
+      position: relative; padding: 100px 0 60px; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; inset: -50% -20% auto -20%;
+      background:
+        radial-gradient(60% 50% at 20% 30%, rgba(124,92,255,0.25), transparent 70%),
+        radial-gradient(50% 50% at 80% 20%, rgba(0,212,255,0.18), transparent 70%),
+        radial-gradient(50% 50% at 50% 100%, rgba(255,92,138,0.18), transparent 70%);
+      filter: blur(40px); z-index: -1;
+    }
+    .hero .wrap { text-align: center; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 99px;
+      background: var(--bg-soft); border: 1px solid var(--border);
+      font-size: 12px; color: var(--text-dim); font-family: var(--mono);
+      margin-bottom: 28px;
+    }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); }
+
+    h1.hero-title {
+      font-size: clamp(38px, 6vw, 64px);
+      font-weight: 800; letter-spacing: -0.02em; line-height: 1.05;
+      margin-bottom: 16px;
+    }
+    h1.hero-title .grad {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2) 50%, var(--accent-3));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero-sub {
+      max-width: 660px; margin: 0 auto 36px;
+      color: var(--text-dim); font-size: 18px; line-height: 1.6;
+    }
+
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 56px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 22px; border-radius: 9px;
+      font-size: 14px; font-weight: 600;
+      transition: transform 0.15s, box-shadow 0.2s;
+      border: 1px solid transparent;
+    }
+    .btn-primary {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      color: white;
+      box-shadow: 0 8px 24px -8px rgba(124,92,255,0.5);
+    }
+    .btn-primary:hover { transform: translateY(-2px); }
+    .btn-secondary {
+      background: var(--card); color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { background: var(--bg-soft); border-color: var(--text-mute); }
+
+    .metrics {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+      max-width: 800px; margin: 0 auto;
+    }
+    .metric { text-align: center; padding: 18px 8px; }
+    .metric .num {
+      font-family: var(--mono); font-size: 28px; font-weight: 700;
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .metric .lbl { color: var(--text-mute); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+
+    @media (max-width: 720px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .metric { padding: 12px 4px; }
+      .metric .num { font-size: 22px; }
+    }
+
+    /* ============ demo section ============ */
+    section { padding: 80px 0; }
+    section h2 {
+      font-size: 32px; font-weight: 700; letter-spacing: -0.01em;
+      margin-bottom: 12px; text-align: center;
+    }
+    section .lead {
+      text-align: center; color: var(--text-dim); font-size: 16px;
+      max-width: 580px; margin: 0 auto 48px;
+    }
+
+    .demo-frame {
+      max-width: 980px; margin: 0 auto;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 30px 80px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,92,255,0.1);
+    }
+    .demo-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px; background: var(--bg-soft);
+      border-bottom: 1px solid var(--border);
+    }
+    .demo-bar .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .demo-bar .dot.r { background: #ff5f57; }
+    .demo-bar .dot.y { background: #febc2e; }
+    .demo-bar .dot.g { background: #28c840; }
+    .demo-bar .title {
+      flex: 1; text-align: center; font-family: var(--mono);
+      font-size: 12px; color: var(--text-mute);
+    }
+    .demo-frame img {
+      display: block; width: 100%; height: auto;
+      background: #1a1d21;
+    }
+
+    /* ============ architecture ============ */
+    .arch {
+      max-width: 1000px; margin: 0 auto;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 32px; overflow-x: auto;
+    }
+    .arch pre {
+      font-family: var(--mono); font-size: 13px; line-height: 1.55;
+      color: var(--text); white-space: pre;
+    }
+    .arch pre .a  { color: var(--accent); }
+    .arch pre .b  { color: var(--accent-2); }
+    .arch pre .c  { color: var(--accent-3); }
+    .arch pre .d  { color: var(--good); }
+    .arch pre .m  { color: var(--text-mute); }
+    .arch pre .h  { color: var(--warn); }
+
+    /* ============ components ============ */
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 920px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 22px;
+      transition: transform 0.15s, border-color 0.2s;
+    }
+    .card:hover { transform: translateY(-3px); border-color: var(--text-mute); }
+    .card .ic {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-weight: 700; font-size: 14px; color: white;
+      margin-bottom: 14px;
+    }
+    .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .card .port { font-family: var(--mono); font-size: 11px; color: var(--text-mute); margin-bottom: 12px; }
+    .card p { color: var(--text-dim); font-size: 14px; line-height: 1.55; }
+    .card .replace { margin-top: 12px; font-size: 12px; color: var(--text-mute); }
+    .card .replace code { color: var(--accent-2); background: var(--bg-soft); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+    /* ============ UAT table ============ */
+    .uat {
+      max-width: 980px; margin: 0 auto;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 16px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg-soft); color: var(--text-mute); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+    td .pass { color: var(--good); font-weight: 600; }
+    td code { font-size: 12px; color: var(--accent-2); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: rgba(255,255,255,0.02); }
+    .uat-summary {
+      display: flex; align-items: center; gap: 12px; justify-content: center;
+      padding: 16px; background: var(--bg-soft);
+      border-top: 1px solid var(--border); font-size: 14px;
+    }
+    .uat-summary .big { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--good); }
+
+    /* ============ quickstart ============ */
+    .qs {
+      max-width: 980px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    @media (max-width: 760px) { .qs { grid-template-columns: 1fr; } }
+    .qs .pane {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+    }
+    .qs .pane-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px; background: var(--bg-soft);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px; font-weight: 600;
+    }
+    .qs .pane-head .tag {
+      font-family: var(--mono); font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 4px; color: white;
+    }
+    .qs .pane pre {
+      padding: 16px; font-size: 12.5px; line-height: 1.55;
+      overflow-x: auto; color: var(--text);
+    }
+    .qs .cmt { color: var(--text-mute); }
+    .qs .cmd { color: var(--accent-2); }
+    .qs .arg { color: var(--accent); }
+    .qs .str { color: var(--good); }
+
+    /* ============ footer ============ */
+    footer {
+      padding: 40px 0; border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    footer .wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    footer .row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+    footer .row a {
+      font-size: 13px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 6px;
+      transition: color 0.2s;
+    }
+    footer .row a:hover { color: var(--text); }
+    footer .meta { font-size: 12px; color: var(--text-mute); font-family: var(--mono); }
+
+    /* ============ shared ============ */
+    .github-icon { width: 14px; height: 14px; }
+    .deploy-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; border-radius: 8px;
+      background: black; color: white; font-size: 13px; font-weight: 600;
+      border: 1px solid #333;
+      transition: background 0.2s;
+    }
+    .deploy-btn:hover { background: #1a1a1a; }
+    .deploy-btn svg { width: 14px; height: 14px; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 5px;
+      font-family: var(--mono); font-size: 11px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--bg-soft);
+      color: var(--text-dim);
+    }
+    .badge .ic { width: 10px; height: 10px; border-radius: 50%; }
+
+    /* fade-in animations */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade { animation: fadeUp 0.6s ease-out both; }
+    .fade-1 { animation-delay: 0.05s; }
+    .fade-2 { animation-delay: 0.15s; }
+    .fade-3 { animation-delay: 0.25s; }
+    .fade-4 { animation-delay: 0.35s; }
+  </style>
+</head>
+<body>
+
+<!-- ==================== NAV ==================== -->
+<nav class="top">
+  <div class="row">
+    <a class="logo" href="#">
+      <span class="mark">A</span>
+      <span>A.O.P.S.</span>
+    </a>
+    <ul>
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#components">Components</a></li>
+      <li><a href="#uat">UAT</a></li>
+      <li><a href="#quickstart">Quickstart</a></li>
+    </ul>
+    <a class="nav-cta" href="https://github.com/adventurewave-labs/aops-sre-pipeline" target="_blank" rel="noopener">★ on GitHub</a>
+  </div>
+</nav>
+
+<!-- ==================== HERO ==================== -->
+<section class="hero">
+  <div class="wrap">
+    <div class="pill fade fade-1">
+      <span class="dot"></span>
+      v0.1 · 10/10 UAT pass · MIT · 16 topics
+    </div>
+    <h1 class="hero-title fade fade-2">
+      The autonomous <span class="grad">SRE pipeline</span><br>
+      that fixes itself.
+    </h1>
+    <p class="hero-sub fade fade-3">
+      A.O.P.S. catches a Prometheus alert, scans the cluster with Popeye,
+      reasons through the findings with a Dify-style agent backed by Ollama,
+      and posts a Slack card with the exact kubectl commands to fix it —
+      all open-source, all self-hosted, all air-gapped.
+    </p>
+    <div class="hero-actions fade fade-4">
+      <a class="btn btn-primary" href="#demo">
+        ▶ Watch the 9s demo
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/adventurewave-labs/aops-sre-pipeline" target="_blank" rel="noopener">
+        <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38C13.71 14.53 16 11.54 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a class="btn btn-secondary" href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fadventurewave-labs%2Faops-sre-pipeline" target="_blank" rel="noopener">
+        ▲ Deploy to Vercel
+      </a>
+    </div>
+
+    <div class="metrics fade fade-4">
+      <div class="metric"><div class="num">6</div><div class="lbl">Services</div></div>
+      <div class="metric"><div class="num">10/10</div><div class="lbl">UAT pass</div></div>
+      <div class="metric"><div class="num">23ms</div><div class="lbl">E2E latency</div></div>
+      <div class="metric"><div class="num">14</div><div class="lbl">Popeye codes</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== DEMO ==================== -->
+<section id="demo" style="padding-top: 40px;">
+  <div class="wrap">
+    <h2>Watch it fire</h2>
+    <p class="lead">
+      A Prometheus alert fires → n8n catches it → Popeye scans → Dify-lite reasons →
+      Slack gets the card. 9.5 seconds, real services, real HTTP.
+    </p>
+    <div class="demo-frame">
+      <div class="demo-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">zsh — ./run.sh demo · 140×44</span>
+      </div>
+      <img src="aops-demo.gif" alt="A.O.P.S. pipeline demo" loading="lazy">
+    </div>
+    <div style="text-align:center; margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+      <span class="badge"><span class="ic" style="background:var(--accent)"></span>Prometheus</span>
+      <span class="badge"><span class="ic" style="background:var(--accent-2)"></span>n8n</span>
+      <span class="badge"><span class="ic" style="background:var(--good)"></span>Popeye</span>
+      <span class="badge"><span class="ic" style="background:var(--warn)"></span>Dify-lite</span>
+      <span class="badge"><span class="ic" style="background:var(--accent-3)"></span>Ollama</span>
+      <span class="badge"><span class="ic" style="background:#888"></span>Slack</span>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== ARCHITECTURE ==================== -->
+<section id="architecture">
+  <div class="wrap">
+    <h2>Architecture</h2>
+    <p class="lead">Six services, one alert-driven chain. Every component is replaceable.</p>
+    <div class="arch">
+<pre>
+<span class="m">┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐</span>
+<span class="m">│</span>                                                                                                      <span class="m">│</span>
+<span class="m">│</span>   <span class="a">Prometheus + Alertmanager</span>        <span class="m">──►  fires PaymentAPIHighErrorRate when 5xx &gt; 5% for 5m</span>            <span class="m">│</span>
+<span class="m">│</span>                                                                                                      <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  webhook                                                                            <span class="m">│</span>
+<span class="m">│</span>   <span class="b">n8n-runner  (or n8nio/n8n:latest)</span>      <span class="m">──►  webhook + workflow executor (loads aops-workflow.json)</span>      <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  HTTP POST /scan?namespace=payment-prod                                              <span class="m">│</span>
+<span class="m">│</span>   <span class="d">popeye-scanner</span>                          <span class="m">──►  14 Popeye analyzers → 24 findings (15 errors, 9 warnings)</span>   <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>   queries                                                                                <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>   <span class="d">mock-k8s-api</span>  <span class="m">(or your real kube-apiserver)</span>   <span class="m">──►  2 nodes · 2 broken Deployments · 1 dangling Ingress · 1 Pending PVC</span>  <span class="m">│</span>
+<span class="m">│</span>                                                                                                      <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>   Popeye JSON returned to n8n                                                          <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  POST /v1/chat/completions                                                              <span class="m">│</span>
+<span class="m">│</span>   <span class="h">dify-lite  (FastAPI agent, 2-round tool-calling)</span>   <span class="m">──►  reasons through findings</span>            <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  OpenAI-compatible API                                                                <span class="m">│</span>
+<span class="m">│</span>   <span class="c">Ollama  (qwen2.5:0.5b · or llama3.1:8b on GPU)</span>      <span class="m">──►  LLM brain (auto-fallback to stub)</span>  <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  remediation Markdown                                                                  <span class="m">│</span>
+<span class="m">│</span>   <span class="d">mock-slack  (or real Slack incoming-webhook)</span>       <span class="m">──►  posts the card</span>                          <span class="m">│</span>
+<span class="m">│</span>                                                                                                      <span class="m">│</span>
+<span class="m">└──────────────────────────────────────────────────────────────────────┘</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== COMPONENTS ==================== -->
+<section id="components">
+  <div class="wrap">
+    <h2>Six services, every one replaceable</h2>
+    <p class="lead">Each component is a thin Python service (or container). Swap any of them for your preferred alternative without touching the others.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #ff5c5c, #ff8a5c)">K8s</div>
+        <h3>mock-k8s-api</h3>
+        <div class="port">:8001</div>
+        <p>Mock kube-apiserver returning 6 broken resources in the payment-prod namespace. Bearer-token auth enforced. Swap for your real apiserver by setting <code>MOCK_K8S_URL</code>.</p>
+        <div class="replace">Replaces: <code>your kube-apiserver</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #4ade80, #22c55e)">POP</div>
+        <h3>popeye-scanner</h3>
+        <div class="port">:8004</div>
+        <p>14 Popeye-compatible analyzers (NO-002, DPL-000, DPL-001, POP-001/002, MEM-001, ING-001, PVC-001/002). Rules-based, deterministic — no hallucination.</p>
+        <div class="replace">Replaces: <code>K8sGPT</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #fbbf24, #f59e0b)">DFY</div>
+        <h3>dify-lite</h3>
+        <div class="port">:8002</div>
+        <p>FastAPI agent mimicking Dify.ai's OpenAI-compatible chat-completions API, with a 2-round tool-calling loop. Auto-falls back to deterministic stub when Ollama is down.</p>
+        <div class="replace">Replaces: <code>Dify.ai</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #ff5c8a, #c026d3)">OLL</div>
+        <h3>ollama</h3>
+        <div class="port">:11434</div>
+        <p>Local LLM runtime serving <code>qwen2.5:0.5b</code> by default. Swap to <code>llama3.1:8b</code> for higher-quality reasoning. CPU-only is fine; GPU makes it faster.</p>
+        <div class="replace">Replaces: <code>any OpenAI-compat API</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #888, #555)">SLK</div>
+        <h3>mock-slack</h3>
+        <div class="port">:8003</div>
+        <p>Receives the remediation card via HTTP, renders an auto-refreshing Slack-card HTML page at <code>/</code>, persists every alert at <code>/alerts.json</code>. No Slack creds needed.</p>
+        <div class="replace">Replaces: <code>real Slack incoming-webhook</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #7c5cff, #00d4ff)">N8N</div>
+        <h3>n8n-runner</h3>
+        <div class="port">:5678</div>
+        <p>Lightweight workflow executor that loads the same <code>aops-workflow.json</code> that real n8n imports. Replaces with <code>n8nio/n8n:latest</code> in 30 seconds.</p>
+        <div class="replace">Replaces: <code>n8n (official image)</code></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== UAT ==================== -->
+<section id="uat">
+  <div class="wrap">
+    <h2>10/10 acceptance tests pass</h2>
+    <p class="lead">Every component was verified in isolation and the full chain was tested end-to-end.</p>
+    <div class="uat">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:60px">Test</th>
+            <th>Description</th>
+            <th style="width:90px">Status</th>
+            <th style="width:90px">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>T01</code></td><td>mock-k8s-api serves the 6 broken resources</td><td><span class="pass">✓ pass</span></td><td>9 ms</td></tr>
+          <tr><td><code>T02</code></td><td>mock-k8s-api enforces Bearer auth</td><td><span class="pass">✓ pass</span></td><td>2 ms</td></tr>
+          <tr><td><code>T03</code></td><td>popeye-scanner emits Popeye-shaped JSON with expected findings</td><td><span class="pass">✓ pass</span></td><td>19 ms</td></tr>
+          <tr><td><code>T04</code></td><td>dify-lite health endpoint reports backend selection</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
+          <tr><td><code>T05</code></td><td>dify-lite chat completion produces a structured remediation</td><td><span class="pass">✓ pass</span></td><td>17 ms</td></tr>
+          <tr><td><code>T06</code></td><td>mock-slack stores the rendered Slack card</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
+          <tr><td><code>T07</code></td><td>n8n-runner workflow has 5 nodes in expected order</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
+          <tr><td><code>T08</code></td><td>end-to-end alert flow completes in &lt; 2 s</td><td><span class="pass">✓ pass</span></td><td>23 ms</td></tr>
+          <tr><td><code>T09</code></td><td>idempotency: firing N times produces N distinct runs</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
+          <tr><td><code>T10</code></td><td>resilience: dify-lite survives malformed message body</td><td><span class="pass">✓ pass</span></td><td>3 ms</td></tr>
+        </tbody>
+      </table>
+      <div class="uat-summary">
+        <span class="big">10 / 10</span>
+        <span>passed · 0 failed · end-to-end latency 23 ms · 24 Popeye findings · 4.2 KB remediation runbook</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Two ways to run it</h2>
+    <p class="lead">Sandbox mode (no Docker) for quick demo · Docker mode for real Ollama.</p>
+    <div class="qs">
+      <div class="pane">
+        <div class="pane-head">
+          <span class="tag" style="background:#888">SANDBOX</span>
+          <span>no Docker · stub backend · 23 ms</span>
+        </div>
+        <pre><span class="cmt"># clone + start all 5 services as Python processes</span>
+<span class="cmd">git</span> <span class="arg">clone</span> https://github.com/adventurewave-labs/aops-sre-pipeline.git
+<span class="cmd">cd</span> aops-sre-pipeline
+
+<span class="cmt"># bring up the stack (no Docker needed)</span>
+<span class="cmd">./</span>run.sh up-no-ollama
+
+<span class="cmt"># fire the PaymentAPIHighErrorRate alert</span>
+<span class="cmd">./</span>run.sh alert
+
+<span class="cmt"># view the rendered Slack card in a browser</span>
+<span class="cmd">open</span> <span class="str">http://localhost:8003</span>
+
+<span class="cmt"># stop everything</span>
+<span class="cmd">./</span>run.sh stop</pre>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="tag" style="background:linear-gradient(135deg,#7c5cff,#00d4ff)">DOCKER</span>
+          <span>real Ollama · qwen2.5:0.5b · 1.5-4 s</span>
+        </div>
+        <pre><span class="cmt"># bring up the full stack with real Ollama</span>
+<span class="cmd">docker</span> <span class="arg">compose</span> up -d
+
+<span class="cmt"># the ollama-pull sidecar auto-pulls qwen2.5:0.5b</span>
+<span class="cmd">docker</span> <span class="arg">compose</span> logs -f ollama-pull
+
+<span class="cmt"># run the UAT matrix against the live stack</span>
+<span class="cmd">docker</span> <span class="arg">compose</span> exec n8n-runner \
+    python3 scripts/run_uat.py
+
+<span class="cmt"># swap to a bigger model on a GPU host</span>
+<span class="cmd">OLLAMA_MODEL</span>=llama3.1:8b <span class="cmd">docker</span> <span class="arg">compose</span> up -d</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FOOTER ==================== -->
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <a href="https://github.com/adventurewave-labs/aops-sre-pipeline" target="_blank" rel="noopener">
+        <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38C13.71 14.53 16 11.54 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        adventurewave-labs/aops-sre-pipeline
+      </a>
+      <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fadventurewave-labs%2Faops-sre-pipeline" target="_blank" rel="noopener">
+        ▲ Deploy this site to Vercel
+      </a>
+    </div>
+    <div class="meta">
+      Built by adventurewave-labs · MIT · 6 services · 14 Popeye analyzers · 10/10 UAT pass
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Smooth scroll for in-page nav
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -1,6 +1,15 @@
 # A.O.P.S. — Automated Off-the-shelf Pipeline SRE
 
+[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fadventurewave-labs%2Faops-sre-pipeline)
+[![License: MIT](https://img.shields.io/badge/License-MIT-7c5cff.svg)](LICENSE)
+[![UAT: 10/10](https://img.shields.io/badge/UAT-10%2F10-4ade80.svg)](#-test-it)
+[![Latency: 23ms](https://img.shields.io/badge/E2E-23ms-00d4ff.svg)](#-test-it)
+
 > An open-source, alert-driven autonomous SRE pipeline: Prometheus fires → n8n catches → Popeye scans → Dify-lite reasons → Ollama explains → Slack receives.
+
+🌐 **Live demo & landing page:** <https://aops-sre-pipeline.vercel.app> *(deploy this repo to Vercel — see `site/DEPLOY.md`)*
+
+![A.O.P.S. pipeline demo](site/aops-demo.gif)
 
 ```
   Prometheus ──webhook──> n8n ──HTTP──> Popeye (scan)
