@@ -22,8 +22,9 @@ htmlcov/
 aops/var/
 **/var/
 *.cast
+# Exclude runtime GIFs but KEEP the site demo gif
 *.gif
-!docs/**/*.gif
+!site/*.gif
 
 # IDE
 .vscode/
