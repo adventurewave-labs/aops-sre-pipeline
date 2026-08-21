@@ -1,0 +1,17 @@
+# payment-api Service (exists — but has no ready endpoints because pods are broken)
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: payment-prod
+  labels:
+    app: payment-api
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP

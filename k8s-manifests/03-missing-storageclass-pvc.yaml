@@ -1,0 +1,17 @@
+# PVC with a StorageClass that does NOT exist → Pending
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: payment-data-pvc
+  namespace: payment-prod
+  labels:
+    app: payment-api
+    tier: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # StorageClass 'fast-ssd' does not exist → PVC stays Pending
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi

@@ -36,6 +36,9 @@ import urllib.error
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+import subprocess
+import shutil
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
@@ -46,6 +49,14 @@ log = logging.getLogger("popeye")
 MOCK_K8S_URL = os.environ.get("MOCK_K8S_URL", "http://localhost:8001")
 AUTH_TOKEN = os.environ.get("MOCK_K8S_TOKEN", "aops-demo-token")
 NAMESPACE = os.environ.get("AOPS_NAMESPACE", "payment-prod")
+KUBECONFIG = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
+
+# POPEYE_MODE: "real" tries the Popeye binary first, falls back to built-in.
+#              "builtin" always uses the built-in Python analyzers.
+POPEYE_MODE = os.environ.get("POPEYE_MODE", "real").lower()
+
+# Can we run the real Popeye binary?
+POPEYE_BIN = shutil.which("popeye")
 
 # Popeye severity levels (int) matching upstream
 S_OK = 0
@@ -345,20 +356,118 @@ def analyze_pvcs(ns: str) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
-# Popeye-shaped report builder
+# Real Popeye binary integration
 # ---------------------------------------------------------------------------
-def grade_from_score(score: int) -> str:
-    if score >= 90: return "A"
-    if score >= 80: return "B"
-    if score >= 70: return "C"
-    if score >= 60: return "D"
-    return "F"
+def _run_real_popeye(ns: str) -> dict | None:
+    """Try running the real Popeye binary against the cluster.
+
+    Returns parsed Popeye JSON output, or None if Popeye is not available
+    or the cluster is unreachable.
+    """
+    if not POPEYE_BIN:
+        log.info("Real Popeye binary not found in PATH")
+        return None
+    if POPEYE_MODE != "real":
+        log.info("POPEYE_MODE=%s — skipping real Popeye", POPEYE_MODE)
+        return None
+
+    log.info("Running real Popeye binary against ns=%s", ns)
+    try:
+        cmd = [
+            POPEYE_BIN,
+            "--kubeconfig", KUBECONFIG,
+            "--namespace", ns,
+            "--out", "json",
+            "--force",
+            "--no-color",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            log.warning("Popeye binary failed (rc=%d): %s",
+                        result.returncode, result.stderr[:300])
+            return None
+        popeye_output = json.loads(result.stdout)
+        log.info("Real Popeye completed successfully")
+        return popeye_output
+    except FileNotFoundError:
+        log.info("Popeye binary not found")
+        return None
+    except subprocess.TimeoutExpired:
+        log.warning("Popeye binary timed out after 60s")
+        return None
+    except Exception as e:
+        log.warning("Popeye binary error: %s", e)
+        return None
 
 
 def build_report(ns: str) -> dict:
-    """Run all analyzers and assemble a Popeye-shaped JSON report."""
+    """Run Popeye scan — tries real binary first, falls back to built-in."""
+    # Try real Popeye binary first
+    if POPEYE_MODE == "real":
+        popeye_raw = _run_real_popeye(ns)
+        if popeye_raw is not None:
+            # Convert real Popeye output to our format
+            started = time.time()
+            findings = _parse_real_popeye(popeye_raw)
+            if findings:
+                log.info("Parsed %d findings from real Popeye output", len(findings))
+                return _assemble_report(ns, findings, started)
+            log.info("Could not parse real Popeye output, falling back to built-in")
+        log.info("Real Popeye unavailable, falling back to built-in analyzers")
+
+    return _build_report_builtin(ns)
+
+
+def _parse_real_popeye(popeye_raw: dict) -> list[Finding]:
+    """Parse real Popeye JSON output into Finding objects.
+
+    Popeye outputs a nested dict with sections containing sanitizers.
+    This is a best-effort parser covering the common output shapes.
+    """
+    findings = []
+    for section_name, section_data in popeye_raw.items():
+        if not isinstance(section_data, dict):
+            continue
+        for resource_type, resources in section_data.items():
+            if not isinstance(resources, dict):
+                continue
+            for resource_name, resource_info in resources.items():
+                if not isinstance(resource_info, dict):
+                    continue
+                # Popeye stores issues under various keys per version
+                for issue_container_key in ("sanitizers", "issues", "trolls"):
+                    issues = resource_info.get(issue_container_key, [])
+                    if not isinstance(issues, list):
+                        continue
+                    for issue in issues:
+                        if not isinstance(issue, dict):
+                            continue
+                        code = issue.get("code", "POP-000")
+                        # Popeye uses level 0-3
+                        level = issue.get("level", 0)
+                        if isinstance(level, str):
+                            level_map = {"ok": S_OK, "info": S_INFO,
+                                        "warn": S_WARN, "error": S_ERROR}
+                            level = level_map.get(level.lower(), S_WARN)
+                        severity = int(level)
+                        message = issue.get("message", "")
+                        if not message:
+                            message = json.dumps(issue)
+                        findings.append(Finding(
+                            group=resource_type,
+                            gvr=f"v1/{resource_type}",
+                            name=resource_name,
+                            code=code,
+                            severity=severity,
+                            message=message,
+                        ))
+    return findings
+
+
+def _build_report_builtin(ns: str) -> dict:
+    """Run built-in Python analyzers and assemble a Popeye-shaped JSON report."""
     started = time.time()
-    log.info("Running Popeye analyzers against ns=%s", ns)
+    log.info("Running built-in Popeye analyzers against ns=%s", ns)
     findings: list[Finding] = []
     findings += analyze_nodes()
     findings += analyze_deployments(ns)
@@ -367,7 +476,11 @@ def build_report(ns: str) -> dict:
     findings += analyze_services(ns)
     findings += analyze_pvcs(ns)
 
-    # Group findings by resource group for Popeye's sanitizers structure
+    return _assemble_report(ns, findings, started)
+
+
+def _assemble_report(ns: str, findings: list[Finding], started: float) -> dict:
+    """Assemble findings into the standard A.O.P.S. report format."""
     by_group: dict[str, list[Finding]] = {}
     for f in findings:
         by_group.setdefault(f.group, []).append(f)
@@ -387,7 +500,6 @@ def build_report(ns: str) -> dict:
             })
         sanitizers[grp] = {"items": items}
 
-    # Compute score: start at 100, deduct by severity
     penalty = sum(S_ERROR if f.severity == S_ERROR else
                   (S_WARN if f.severity == S_WARN else S_INFO) for f in findings)
     score = max(0, 100 - penalty * 4)
@@ -397,24 +509,22 @@ def build_report(ns: str) -> dict:
     log.info("Scan complete: %d findings, score=%d grade=%s, %.2fs",
              len(findings), score, grade, elapsed)
 
-    # The 'issues' structure matches Popeye's flat representation
     issues_by_ns = {
-        ns: [
-            {
-                "group": f.group,
-                "gvr": f.gvr,
-                "name": f.name,
-                "code": f.code,
-                "severity": f.severity,
-                "severity_label": SEVERITY_LABEL[f.severity],
-                "message": f.message,
-            } for f in findings
-        ]
+        ns: [{
+            "group": f.group,
+            "gvr": f.gvr,
+            "name": f.name,
+            "code": f.code,
+            "severity": f.severity,
+            "severity_label": SEVERITY_LABEL[f.severity],
+            "message": f.message,
+        } for f in findings]
     }
 
     return {
         "scanner": "popeye",
-        "popeye_version": "0.11.4+mock-aops",
+        "popeye_version": "real-binary" if POPEYE_BIN and POPEYE_MODE == "real" else "builtin-aops",
+        "popeye_mode": POPEYE_MODE,
         "namespace": ns,
         "scan_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_seconds": elapsed,

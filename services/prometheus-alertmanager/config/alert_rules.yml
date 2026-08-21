@@ -1,0 +1,62 @@
+groups:
+  - name: aops_payment_rules
+    rules:
+      - alert: PaymentAPIHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{service="payment-api",code=~"5.."}[5m]))
+          / sum(rate(http_requests_total{service="payment-api"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          namespace: payment-prod
+          service: payment-api
+        annotations:
+          summary: "Payment API 5xx rate is {{ $value | humanizePercentage }} (threshold 5%)"
+          description: "5xx error ratio exceeds 5% for 5 minutes on payment-api"
+          runbook_url: "https://wiki.internal/runbooks/payment-api-5xx"
+          dashboard: "https://grafana.internal/d/payment-api"
+
+      - alert: PaymentWorkerCrashLooping
+        expr: |
+          sum(rate(kube_pod_container_status_restarts_total{namespace="payment-prod",container="payment-worker"}[5m])) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          namespace: payment-prod
+          service: payment-worker
+        annotations:
+          summary: "payment-worker pods are crash-looping"
+          description: "Container payment-worker has restarted more than 0.1 times/sec over 5m"
+
+      - alert: NodeDiskPressure
+        expr: |
+          kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node {{ $labels.node }} is in DiskPressure"
+          description: "Disk pressure detected on {{ $labels.node }} — eviction threshold may be breached"
+
+      - alert: PendingPVC
+        expr: |
+          kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          namespace: payment-prod
+        annotations:
+          summary: "PVC {{ $labels.persistentvolumeclaim }} has been Pending for >5m"
+          description: "PersistentVolumeClaim cannot be provisioned — check StorageClass availability"
+
+      - alert: DeploymentUnhealthy
+        expr: |
+          kube_deployment_status_replicas_available{namespace="payment-prod"}
+          / kube_deployment_spec_replicas{namespace="payment-prod"} < 0.5
+        for: 3m
+        labels:
+          severity: critical
+          namespace: payment-prod
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} has fewer than 50% replicas available"
+          description: "Only {{ $value | humanizePercentage }} of desired replicas are ready"

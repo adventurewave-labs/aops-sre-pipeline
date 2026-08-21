@@ -1,5 +1,5 @@
 {
-  "name": "A.O.P.S. — PaymentAPIHighErrorRate remediation",
+  "name": "A.O.P.S. — Real PaymentAPIHighErrorRate remediation",
   "active": true,
   "nodes": [
     {
@@ -56,7 +56,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://mock-slack:8003/webhook/slack",
+        "url": "http://slack-receiver:8003/webhook/slack",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -79,14 +79,33 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "http://remediation-executor:8005/remediate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "popeye_score", "value": "={{$node['Popeye Scan'].json.score}}" },
+            { "name": "runbook", "value": "={{$json.choices[0].message.content}}" }
+          ]
+        },
+        "options": { "timeout": 300000 }
+      },
+      "id": "6",
+      "name": "Execute Remediation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [880, 400]
+    },
+    {
+      "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  status: 'remediation_posted',\n  slack_card: $json,\n  agent_trace: $node['Dify Agent Reasoning'].json._dify_lite_trace\n}"
+        "responseBody": "={{{ status: 'remediation_posted', slack_card: $json, remediation_result: $node['Execute Remediation'].json, agent_trace: $node['Dify Agent Reasoning'].json._dify_lite_trace }}}"
       },
       "id": "5",
       "name": "Respond to Alertmanager",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, 220]
+      "position": [1100, 300]
     }
   ],
   "connections": {
@@ -97,9 +116,12 @@
       "main": [ [ { "node": "Dify Agent Reasoning", "type": "main", "index": 0 } ] ]
     },
     "Dify Agent Reasoning": {
-      "main": [ [ { "node": "Post to Slack", "type": "main", "index": 0 } ] ]
+      "main": [ [ { "node": "Post to Slack", "type": "main", "index": 0 }, { "node": "Execute Remediation", "type": "main", "index": 0 } ] ]
     },
     "Post to Slack": {
+      "main": [ [ { "node": "Respond to Alertmanager", "type": "main", "index": 0 } ] ]
+    },
+    "Execute Remediation": {
       "main": [ [ { "node": "Respond to Alertmanager", "type": "main", "index": 0 } ] ]
     }
   },
@@ -109,7 +131,7 @@
   "meta": {
     "templateCredsSetupCompleted": true,
     "_aops": {
-      "description": "Prometheus Alertmanager webhook -> Popeye scanner -> Dify-lite agentic LLM -> Slack card. Triggered by PaymentAPIHighErrorRate alert (5xx > 5% for 5m).",
+      "description": "REAL A.O.P.S. pipeline: Prometheus Alertmanager -> real n8n -> Popeye (real binary) -> dify-lite + Ollama (real LLM) -> Slack -> remediation executor (real kubectl)",
       "trigger_example": "curl -X POST http://n8n:5678/webhook/aops-alert -d '{\"alertname\":\"PaymentAPIHighErrorRate\",\"severity\":\"critical\",\"namespace\":\"payment-prod\"}'"
     }
   }

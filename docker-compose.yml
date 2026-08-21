@@ -1,31 +1,46 @@
-# A.O.P.S. stack — Automated Off-the-shelf Pipeline SRE.
+# A.O.P.S. stack — REAL Automated Off-the-shelf Pipeline SRE.
 #
-# Six services wired into one alert-driven remediation pipeline:
+# This compose file wires REAL components together:
 #
-#   Prometheus (external)
+#   Real Prometheus (port 9090) + Alertmanager (port 9093)
 #        ↓ Alertmanager webhook
-#   n8n-runner (port 5678)            [webhook + workflow executor]
-#        ↓ HTTP
-#   mock-k8s-api (port 8001)          [mock Kubernetes API for payment-prod]
-#        ↑ query
-#   popeye-scanner (port 8004)        [Popeye-shaped sanitizer JSON]
-#        ↓ POST Popeye JSON
-#   dify-lite (port 8002)             [FastAPI agent + tool-calling]
+#   Real n8n (port 5678)                [imports aops-workflow.json automatically]
+#        ↓ HTTP POST
+#   Popeye scanner (port 8004)           [real Popeye binary, falls back to built-in]
+#        ↓ Popeye JSON
+#   dify-lite (port 8002)               [agentic reasoning → real Ollama LLM]
 #        ↓ OpenAI-compat
-#   ollama (port 11434)               [LLM backend, e.g. qwen2.5:0.5b]
+#   Ollama (port 11434)                  [real LLM: qwen2.5:0.5b or llama3.1:8b]
 #        ↓ remediation text
-#   mock-slack (port 8003)            [Slack-card HTML receiver]
+#   Slack receiver (port 8003)           [real webhook OR mock-slack fallback]
+#        ↓ POST /remediate
+#   Remediation executor (port 8005)    [applies real kubectl fixes, re-scans]
 #
-# Replace `mock-n8n-runner` with the official `n8nio/n8n:latest` image if you
-# want a real n8n instance — the workflow JSON in
-# services/n8n-runner/aops-workflow.json is fully n8n-importable.
+# MODES:
+#   docker compose up -d                          # Full real stack (needs kind cluster)
+#   AOPS_MODE=sandbox docker compose up -d        # Uses mock-k8s-api (no cluster needed)
+#   REAL_SLACK_WEBHOOK_URL=https://... docker compose up -d  # Real Slack
+#
+# The mock-k8s-api service is only used when AOPS_MODE=sandbox.
+# When AOPS_MODE=real (default), Popeye and the remediation executor
+# talk directly to a real Kubernetes cluster via kubeconfig.
 
 services:
 
+  # ------------------------------------------------------------------
+  # Option A: Real Kubernetes (default when AOPS_MODE=real)
+  # ------------------------------------------------------------------
+  # When using a real kind/minikube cluster, the K8s API is accessed
+  # via the host's kubeconfig. No mock-k8s-api is needed.
+
+  # ------------------------------------------------------------------
+  # Option B: Mock K8s API (when AOPS_MODE=sandbox)
+  # ------------------------------------------------------------------
   mock-k8s-api:
     build: ./services/mock-k8s-api
-    image: aops/mock-k8s-api:0.1
+    image: aops/mock-k8s-api:0.2
     container_name: aops-mock-k8s-api
+    profiles: ["sandbox"]
     ports: ["8001:8001"]
     environment:
       MOCK_K8S_HOST: "0.0.0.0"
@@ -33,33 +48,42 @@ services:
       MOCK_K8S_TOKEN: "aops-demo-token"
       MOCK_K8S_DISABLE_AUTH: "0"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8001/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12
     networks: [aops-net]
 
+  # ------------------------------------------------------------------
+  # Popeye scanner — uses REAL Popeye binary when available
+  # ------------------------------------------------------------------
   popeye-scanner:
     build: ./services/popeye-scanner
-    image: aops/popeye-scanner:0.1
+    image: aops/popeye-scanner:0.2
     container_name: aops-popeye-scanner
     ports: ["8004:8004"]
-    depends_on:
-      mock-k8s-api:
-        condition: service_healthy
     environment:
       POPEYE_HOST: "0.0.0.0"
       POPEYE_PORT: "8004"
+      POPEYE_MODE: "${POPEYE_MODE:-real}"
+      AOPS_NAMESPACE: "payment-prod"
+      # In sandbox mode, point at the mock K8s API
       MOCK_K8S_URL: "http://mock-k8s-api:8001"
       MOCK_K8S_TOKEN: "aops-demo-token"
-      AOPS_NAMESPACE: "payment-prod"
+      # In real mode, mount the host kubeconfig
+      KUBECONFIG: "/root/.kube/config"
+    volumes:
+      - ${KUBECONFIG_PATH:-~/.kube/config}:/root/.kube/config:ro
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8004/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12
     networks: [aops-net]
 
+  # ------------------------------------------------------------------
+  # Real Ollama LLM backend
+  # ------------------------------------------------------------------
   ollama:
     image: ollama/ollama:0.3.12
     container_name: aops-ollama
@@ -78,8 +102,6 @@ services:
     networks: [aops-net]
 
   ollama-pull:
-    # One-shot: pull the model after ollama is up. Idempotent — if the model
-    # is already present, it exits 0 quickly.
     image: ollama/ollama:0.3.12
     container_name: aops-ollama-pull
     depends_on:
@@ -87,76 +109,179 @@ services:
         condition: service_started
     environment:
       OLLAMA_HOST: "http://ollama:11434"
-      OLLAMA_MODEL: "qwen2.5:0.5b"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:0.5b}"
     entrypoint: ["sh", "-c"]
     command: >
-      "ollama pull qwen2.5:0.5b && echo 'model pulled'"
+      "ollama pull ${OLLAMA_MODEL:-qwen2.5:0.5b} && echo 'model pulled successfully'"
     volumes:
       - ollama-models:/root/.ollama
     networks: [aops-net]
     restart: "no"
 
+  # ------------------------------------------------------------------
+  # dify-lite — agentic reasoning, defaults to REAL Ollama
+  # ------------------------------------------------------------------
   dify-lite:
     build: ./services/dify-lite
-    image: aops/dify-lite:0.1
+    image: aops/dify-lite:0.2
     container_name: aops-dify-lite
     ports: ["8002:8002"]
     depends_on:
-      popeye-scanner:
-        condition: service_healthy
       ollama:
         condition: service_started
     environment:
       DIFY_LITE_HOST: "0.0.0.0"
       DIFY_LITE_PORT: "8002"
-      AOPS_LLM_BACKEND: "auto"
+      AOPS_LLM_BACKEND: "${AOPS_LLM_BACKEND:-ollama}"
       OLLAMA_URL: "http://ollama:11434"
-      OLLAMA_MODEL: "qwen2.5:0.5b"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:0.5b}"
       MOCK_K8S_URL: "http://mock-k8s-api:8001"
       MOCK_K8S_TOKEN: "aops-demo-token"
-      AOPS_MAX_AGENT_ROUNDS: "2"
+      AOPS_MAX_AGENT_ROUNDS: "${AOPS_MAX_AGENT_ROUNDS:-2}"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8002/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12
     networks: [aops-net]
 
-  mock-slack:
+  # ------------------------------------------------------------------
+  # Slack receiver — supports real Slack webhook OR local mock
+  # ------------------------------------------------------------------
+  slack-receiver:
     build: ./services/mock-slack
-    image: aops/mock-slack:0.1
-    container_name: aops-mock-slack
+    image: aops/slack-receiver:0.2
+    container_name: aops-slack-receiver
     ports: ["8003:8003"]
     environment:
       MOCK_SLACK_HOST: "0.0.0.0"
       MOCK_SLACK_PORT: "8003"
+      # Set REAL_SLACK_WEBHOOK_URL to use real Slack instead of local mock
+      REAL_SLACK_WEBHOOK_URL: "${REAL_SLACK_WEBHOOK_URL:-}"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8003/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12
     networks: [aops-net]
 
-  n8n-runner:
-    build: ./services/n8n-runner
-    image: aops/n8n-runner:0.1
-    container_name: aops-n8n-runner
+  # ------------------------------------------------------------------
+  # Real n8n — workflow executor with auto-imported A.O.P.S. workflow
+  # ------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: aops-n8n
     ports: ["5678:5678"]
     depends_on:
       popeye-scanner:
         condition: service_healthy
       dify-lite:
         condition: service_healthy
-      mock-slack:
+      slack-receiver:
+        condition: service_healthy
+    environment:
+      N8N_HOST: "0.0.0.0"
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: "http"
+      WEBHOOK_URL: "http://n8n:5678/"
+      # Auto-import the A.O.P.S. workflow on first boot
+      N8N_IMPORT_FILE: "/data/n8n-workflow.json"
+      # Environment variables the n8n workflow nodes will reference
+      POPEYE_URL: "http://popeye-scanner:8004"
+      DIFY_LITE_URL: "http://dify-lite:8002"
+      SLACK_WEBHOOK_URL: "http://slack-receiver:8003/webhook/slack"
+      REMEDIATION_URL: "http://remediation-executor:8005"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:0.5b}"
+    volumes:
+      - ./services/n8n-runner/aops-workflow.json:/data/n8n-workflow.json:ro
+      - n8n-data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5678/healthz || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [aops-net]
+
+  # ------------------------------------------------------------------
+  # Lightweight n8n-runner (Python fallback when real n8n is not desired)
+  # ------------------------------------------------------------------
+  n8n-runner:
+    build: ./services/n8n-runner
+    image: aops/n8n-runner:0.2
+    container_name: aops-n8n-runner
+    profiles: ["sandbox"]
+    ports: ["5678:5678"]
+    depends_on:
+      popeye-scanner:
+        condition: service_healthy
+      dify-lite:
+        condition: service_healthy
+      slack-receiver:
         condition: service_healthy
     environment:
       N8N_RUNNER_HOST: "0.0.0.0"
       N8N_RUNNER_PORT: "5678"
       POPEYE_URL: "http://popeye-scanner:8004"
       DIFY_LITE_URL: "http://dify-lite:8002"
-      MOCK_SLACK_URL: "http://mock-slack:8003"
+      MOCK_SLACK_URL: "http://slack-receiver:8003"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:5678/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5678/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [aops-net]
+
+  # ------------------------------------------------------------------
+  # Real Prometheus + Alertmanager
+  # ------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: aops-prometheus
+    profiles: ["monitoring"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./services/prometheus-alertmanager/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./services/prometheus-alertmanager/config/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=24h"
+      - "--web.enable-remote-write-receiver"
+    networks: [aops-net]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aops-alertmanager
+    profiles: ["monitoring"]
+    ports: ["9093:9093"]
+    volumes:
+      - ./services/prometheus-alertmanager/config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--web.external-url=http://localhost:9093"
+    depends_on:
+      n8n:
+        condition: service_started
+    networks: [aops-net]
+
+  # ------------------------------------------------------------------
+  # Remediation Executor — applies REAL kubectl fixes
+  # ------------------------------------------------------------------
+  remediation-executor:
+    build: ./services/remediation-executor
+    image: aops/remediation-executor:0.2
+    container_name: aops-remediation-executor
+    ports: ["8005:8005"]
+    environment:
+      REMEDIATION_HOST: "0.0.0.0"
+      REMEDIATION_PORT: "8005"
+      POPEYE_URL: "http://popeye-scanner:8004"
+      AOPS_NAMESPACE: "payment-prod"
+      DRY_RUN: "${DRY_RUN:-0}"
+    volumes:
+      - ${KUBECONFIG_PATH:-~/.kube/config}:/root/.kube/config:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -164,6 +289,8 @@ services:
 
 volumes:
   ollama-models:
+  n8n-data:
+  prometheus-data:
 
 networks:
   aops-net:

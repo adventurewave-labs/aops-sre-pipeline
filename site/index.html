@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>A.O.P.S. — Automated Off-the-shelf Pipeline SRE</title>
-  <meta name="description" content="An open-source, alert-driven autonomous SRE pipeline: Prometheus → n8n → Popeye → Dify-lite → Ollama → Slack. 10/10 UAT pass, 23ms end-to-end latency.">
+  <meta name="description" content="Open-source alert-driven autonomous SRE pipeline. Real Prometheus + n8n + Popeye + Ollama LLM + kubectl remediation + Slack. Two modes: full real stack or self-contained sandbox.">
   <meta property="og:title" content="A.O.P.S. — Automated Off-the-shelf Pipeline SRE">
-  <meta property="og:description" content="Open-source alert-driven autonomous SRE pipeline. Catches a Prometheus alert → scans the cluster → reasons through the findings → posts a Slack card with the fix.">
+  <meta property="og:description" content="Open-source alert-driven autonomous SRE pipeline with real Prometheus, n8n, Popeye, Ollama LLM, kubectl remediation, and Slack notification. Runs in two modes: full real stack or self-contained sandbox.">
   <meta property="og:image" content="aops-demo-poster.png">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
@@ -466,7 +466,7 @@
 
 <!-- ==================== DEMO BANNER ==================== -->
 <div class="demo-banner">
-  &#9888;&nbsp; THIS IS A DEMO &mdash; self-contained, no real infrastructure required
+  &#9888;&nbsp; TWO MODES &mdash; <strong>Real mode</strong> (kind + Popeye binary + Ollama + n8n + Prometheus) or <strong>sandbox</strong> (self-contained, no cluster needed)
 </div>
 
 <!-- ==================== NAV ==================== -->
@@ -480,7 +480,7 @@
       <li><a href="#demo">Demo</a></li>
       <li><a href="#architecture">Architecture</a></li>
       <li><a href="#components">Components</a></li>
-      <li><a href="#mocked">Real vs. Mocked</a></li>
+      <li><a href="#modes">Modes</a></li>
       <li><a href="#uat">UAT</a></li>
       <li><a href="#quickstart">Quickstart</a></li>
     </ul>
@@ -500,10 +500,10 @@
       that fixes itself.
     </h1>
     <p class="hero-sub fade fade-3">
-      A.O.P.S. catches a Prometheus alert, scans the cluster with Popeye,
-      reasons through the findings with a Dify-style agent backed by Ollama,
-      and posts a Slack card with the exact kubectl commands to fix it —
-      all open-source, all self-hosted, all air-gapped.
+      A.O.P.S. catches a <strong>real Prometheus</strong> alert, scans the cluster with the <strong>real Popeye binary</strong>,
+      reasons through findings with an agentic loop backed by <strong>real Ollama LLM</strong>,
+      applies <strong>real kubectl remediation</strong>, and posts a Slack card &mdash;
+      all open-source, all self-hosted, fully air-gapped capable.
     </p>
     <div class="hero-actions fade fade-4">
       <a class="btn btn-primary" href="#demo">
@@ -519,10 +519,10 @@
     </div>
 
     <div class="metrics fade fade-4">
-      <div class="metric"><div class="num">6</div><div class="lbl">Services</div></div>
+      <div class="metric"><div class="num">9+</div><div class="lbl">Services</div></div>
       <div class="metric"><div class="num">10/10</div><div class="lbl">UAT pass</div></div>
-      <div class="metric"><div class="num">23ms</div><div class="lbl">E2E latency</div></div>
-      <div class="metric"><div class="num">14</div><div class="lbl">Popeye codes</div></div>
+      <div class="metric"><div class="num">23ms</div><div class="lbl">Sandbox E2E</div></div>
+      <div class="metric"><div class="num">1.5-4s</div><div class="lbl">Real E2E</div></div>
     </div>
   </div>
 </section>
@@ -532,8 +532,8 @@
   <div class="wrap">
     <h2>Watch it fire</h2>
     <p class="lead">
-      A Prometheus alert fires → n8n catches it → Popeye scans → Dify-lite reasons →
-      Slack gets the card. 30 seconds, real services, real HTTP.
+      Real Prometheus fires → real n8n catches → Popeye scans the cluster → agentic reasoning via Ollama LLM →
+      real kubectl remediation → Slack gets the card.
     </p>
     <div class="demo-frame">
       <div class="demo-bar">
@@ -557,35 +557,38 @@
 <section id="architecture">
   <div class="wrap">
     <h2>Architecture</h2>
-    <p class="lead">Six services, one alert-driven chain. Every component is replaceable.</p>
+    <p class="lead">Nine services, one alert-driven chain. Real components with a sandbox fallback.</p>
     <div class="arch">
 <pre>
-<span class="m">┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐</span>
-<span class="m">│</span>                                                                                                      <span class="m">│</span>
-<span class="m">│</span>   <span class="a">Prometheus + Alertmanager</span>        <span class="m">──►  fires PaymentAPIHighErrorRate when 5xx &gt; 5% for 5m</span>            <span class="m">│</span>
-<span class="m">│</span>                                                                                                      <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>  webhook                                                                            <span class="m">│</span>
-<span class="m">│</span>   <span class="b">n8n-runner  (or n8nio/n8n:latest)</span>      <span class="m">──►  webhook + workflow executor (loads aops-workflow.json)</span>      <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>  HTTP POST /scan?namespace=payment-prod                                              <span class="m">│</span>
-<span class="m">│</span>   <span class="d">popeye-scanner</span>                          <span class="m">──►  14 Popeye analyzers → 24 findings (15 errors, 9 warnings)</span>   <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>   queries                                                                                <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>   <span class="d">mock-k8s-api</span>  <span class="m">(or your real kube-apiserver)</span>   <span class="m">──►  2 nodes · 2 broken Deployments · 1 dangling Ingress · 1 Pending PVC</span>  <span class="m">│</span>
-<span class="m">│</span>                                                                                                      <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>   Popeye JSON returned to n8n                                                          <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>  POST /v1/chat/completions                                                              <span class="m">│</span>
-<span class="m">│</span>   <span class="h">dify-lite  (FastAPI agent, 2-round tool-calling)</span>   <span class="m">──►  reasons through findings</span>            <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>  OpenAI-compatible API                                                                <span class="m">│</span>
-<span class="m">│</span>   <span class="c">Ollama  (qwen2.5:0.5b · or llama3.1:8b on GPU)</span>      <span class="m">──►  LLM brain (auto-fallback to stub)</span>  <span class="m">│</span>
-<span class="m">│</span>            <span class="m">│</span>                                                                                       <span class="m">│</span>
-<span class="m">│</span>            <span class="m">▼</span>  remediation Markdown                                                                  <span class="m">│</span>
-<span class="m">│</span>   <span class="d">mock-slack  (or real Slack incoming-webhook)</span>       <span class="m">──►  posts the card</span>                          <span class="m">│</span>
-<span class="m">│</span>                                                                                                      <span class="m">│</span>
-<span class="m">└──────────────────────────────────────────────────────────────────────┘</span>
+<span class="m">┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐</span>
+<span class="m">│</span>                                                                                                              <span class="m">│</span>
+<span class="m">│</span>   <span class="a">Real Prometheus + Alertmanager</span>      <span class="m">──►  fires PaymentAPIHighErrorRate when 5xx &gt; 5% for 5m</span>              <span class="m">│</span>
+<span class="m">│</span>                                                                                                              <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  webhook                                                                                  <span class="m">│</span>
+<span class="m">│</span>   <span class="b">Real n8n  (n8nio/n8n:latest)</span>           <span class="m">──►  visual workflow editor + auto-imported aops-workflow.json</span>       <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  HTTP POST /scan?namespace=payment-prod                                                     <span class="m">│</span>
+<span class="m">│</span>   <span class="d">Popeye scanner</span>                           <span class="m">──►  real binary (100+ analyzers) or built-in 14-code fallback</span>          <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>   queries real K8s API (or mock-k8s-api in sandbox)                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>   <span class="d">Real kind cluster</span>  <span class="m">(or mock-k8s-api)</span>   <span class="m">──►  2 nodes · 2 broken Deployments · 1 dangling Ingress · 1 Pending PVC</span>  <span class="m">│</span>
+<span class="m">│</span>                                                                                                              <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>   Popeye JSON returned to n8n                                                                     <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  POST /v1/chat/completions                                                                     <span class="m">│</span>
+<span class="m">│</span>   <span class="h">dify-lite  (agentic reasoning, 2-round tool-calling)</span>  <span class="m">──►  reasons through findings</span>          <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  OpenAI-compatible API                                                                         <span class="m">│</span>
+<span class="m">│</span>   <span class="c">Real Ollama  (qwen2.5:0.5b · or llama3.1:8b on GPU)</span>  <span class="m">──►  LLM reasoning (auto-fallback to stub)</span>  <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  POST /remediate                                                                              <span class="m">│</span>
+<span class="m">│</span>   <span class="c">Remediation executor</span>                 <span class="m">──►  applies real kubectl fixes, re-scans for before/after score</span>   <span class="m">│</span>
+<span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
+<span class="m">│</span>            <span class="m">▼</span>  Slack card                                                                                    <span class="m">│</span>
+<span class="m">│</span>   <span class="d">Slack receiver</span>  <span class="m">(real webhook or local HTML card)</span>   <span class="m">──►  posts the card</span>                        <span class="m">│</span>
+<span class="m">│</span>                                                                                                              <span class="m">│</span>
+<span class="m">└────────────────────────────────────────────────────────────────────────────────────────────┘</span>
 </pre>
     </div>
   </div>
@@ -594,107 +597,121 @@
 <!-- ==================== COMPONENTS ==================== -->
 <section id="components">
   <div class="wrap">
-    <h2>Six services, every one replaceable</h2>
-    <p class="lead">Each component is a thin Python service (or container). Swap any of them for your preferred alternative without touching the others.</p>
+    <h2>Nine services, every one replaceable</h2>
+    <p class="lead">Real components in Docker mode, lightweight Python fallbacks in sandbox. Swap any service without touching the others.</p>
     <div class="grid">
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #ff5c5c, #ff8a5c)">K8s</div>
-        <h3>mock-k8s-api</h3>
-        <div class="port">:8001</div>
-        <p>Mock kube-apiserver returning 6 broken resources in the payment-prod namespace. Bearer-token auth enforced. Swap for your real apiserver by setting <code>MOCK_K8S_URL</code>.</p>
-        <div class="replace">Replaces: <code>your kube-apiserver</code></div>
+        <h3>Kubernetes (kind)</h3>
+        <div class="port">real cluster / :8001 sandbox</div>
+        <p>Real kind cluster with 3 nodes and 6 deliberately broken resources in payment-prod. Sandbox mode uses a Python mock implementing a subset of the K8s REST API with Bearer-token auth.</p>
+        <div class="replace">Real mode: <code>kind</code> · Sandbox: <code>mock-k8s-api</code></div>
       </div>
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #4ade80, #22c55e)">POP</div>
         <h3>popeye-scanner</h3>
         <div class="port">:8004</div>
-        <p>14 Popeye-compatible analyzers (NO-002, DPL-000, DPL-001, POP-001/002, MEM-001, ING-001, PVC-001/002). Rules-based, deterministic — no hallucination.</p>
+        <p>Real <code>popeye</code> Go binary (100+ analyzers) with automatic fallback to built-in Python engine (14 codes). Both emit standard Popeye-shaped sanitizer JSON. Set <code>POPEYE_MODE=real</code> to prefer the binary.</p>
         <div class="replace">Replaces: <code>K8sGPT</code></div>
       </div>
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #fbbf24, #f59e0b)">DFY</div>
         <h3>dify-lite</h3>
         <div class="port">:8002</div>
-        <p>FastAPI agent mimicking Dify.ai's OpenAI-compatible chat-completions API, with a 2-round tool-calling loop. Auto-falls back to deterministic stub when Ollama is down.</p>
+        <p>Agentic reasoning service implementing Dify.ai's OpenAI-compatible chat-completions API with a 2-round tool-calling loop. Defaults to real Ollama LLM; falls back to deterministic stub when Ollama is unreachable.</p>
         <div class="replace">Replaces: <code>Dify.ai</code></div>
       </div>
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #ff5c8a, #c026d3)">OLL</div>
         <h3>ollama</h3>
         <div class="port">:11434</div>
-        <p>Local LLM runtime serving <code>qwen2.5:0.5b</code> by default. Swap to <code>llama3.1:8b</code> for higher-quality reasoning. CPU-only is fine; GPU makes it faster.</p>
+        <p>Real <code>ollama/ollama</code> container serving <code>qwen2.5:0.5b</code> by default (pulled automatically on first boot). Swap to <code>llama3.1:8b</code> for higher-quality reasoning on a GPU host.</p>
         <div class="replace">Replaces: <code>any OpenAI-compat API</code></div>
       </div>
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #888, #555)">SLK</div>
-        <h3>mock-slack</h3>
+        <h3>Slack receiver</h3>
         <div class="port">:8003</div>
-        <p>Receives the remediation card via HTTP, renders an auto-refreshing Slack-card HTML page at <code>/</code>, persists every alert at <code>/alerts.json</code>. No Slack creds needed.</p>
-        <div class="replace">Replaces: <code>real Slack incoming-webhook</code></div>
+        <p>Set <code>REAL_SLACK_WEBHOOK_URL</code> to post to your real Slack channel. Without it, renders an auto-refreshing Slack-card HTML page at <code>/</code> and persists every alert at <code>/alerts.json</code>.</p>
+        <div class="replace">Real mode: <code>Slack webhook</code> · Sandbox: <code>local HTML card</code></div>
       </div>
       <div class="card">
         <div class="ic" style="background: linear-gradient(135deg, #7c5cff, #00d4ff)">N8N</div>
-        <h3>n8n-runner</h3>
+        <h3>n8n</h3>
         <div class="port">:5678</div>
-        <p>Lightweight workflow executor that loads the same <code>aops-workflow.json</code> that real n8n imports. Replaces with <code>n8nio/n8n:latest</code> in 30 seconds.</p>
-        <div class="replace">Replaces: <code>n8n (official image)</code></div>
+        <p>Real <code>n8nio/n8n:latest</code> with visual workflow editor and auto-imported <code>aops-workflow.json</code>. Sandbox mode uses a lightweight Python executor that loads the same JSON.</p>
+        <div class="replace">Real mode: <code>n8nio/n8n:latest</code> · Sandbox: <code>Python runner</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #e85d4a, #d94040)">PROM</div>
+        <h3>Prometheus + Alertmanager</h3>
+        <div class="port">:9090 / :9093</div>
+        <p>Real <code>prom/prometheus:v2.53.0</code> + <code>prom/alertmanager:v0.27.0</code> containers. Enable with <code>--profile monitoring</code>. Alertmanager fires the webhook to n8n when 5xx rate exceeds 5%.</p>
+        <div class="replace">Real mode: <code>prom/prometheus</code> · Sandbox: <code>alert.sh</code></div>
+      </div>
+      <div class="card">
+        <div class="ic" style="background: linear-gradient(135deg, #22d3ee, #0891b2)">FIX</div>
+        <h3>Remediation executor</h3>
+        <div class="port">:8005</div>
+        <p>Applies real <code>kubectl</code> commands against the live cluster: fixes images, raises memory limits, creates missing StorageClasses, patches Ingress routes. Re-scans with Popeye for before/after score comparison. Supports <code>DRY_RUN=1</code>.</p>
+        <div class="replace">Runs: <code>kubectl</code> · Verifies: <code>popeye re-scan</code></div>
       </div>
     </div>
   </div>
 </section>
 
 
-<!-- ==================== WHAT'S REAL vs. MOCKED ==================== -->
-<section id="mocked" class="mock-section">
+<!-- ==================== MODES ==================== -->
+<section id="modes" class="mock-section">
   <div class="wrap">
-    <h2>What's real &amp; what's mocked</h2>
-    <p class="lead">Every component in this pipeline is <strong>real, runnable code</strong> &mdash; but some talk to fake backends so the demo is self-contained. Here's exactly what's what.</p>
+    <h2>Real mode vs. Sandbox mode</h2>
+    <p class="lead">A.O.P.S. runs in two modes. <strong>Real mode</strong> uses production-grade components; <strong>sandbox mode</strong> is self-contained with zero external dependencies.</p>
 
     <div class="mock-grid">
       <div class="mock-card">
-        <h4><span class="tag-mock">Mocked</span> Kubernetes API</h4>
-        <p>The <code>mock-k8s-api</code> serves a deterministic 2-node cluster with 6 deliberately broken resources. No real kube-apiserver is needed. The mock implements a subset of the K8s REST API (<code>/api/v1/namespaces/&#8230;</code>, <code>/apis/apps/v1/&#8230;</code>) with Bearer-token auth.</p>
-        <ul>
-          <li>2 Nodes (one healthy, one with DiskPressure at 92%)</li>
-          <li>2 broken Deployments (ImagePullBackOff, CrashLoopBackOff)</li>
-          <li>1 dangling Ingress (references a non-existent Service)</li>
-          <li>1 Pending PVC (StorageClass was deleted)</li>
-          <li>1 Service with zero endpoints</li>
-        </ul>
-        <p><strong>Swap:</strong> point <code>MOCK_K8S_URL</code> at your real apiserver to scan live clusters.</p>
+        <h4><span class="tag-real">Real</span> Kubernetes (kind)</h4>
+        <p>In real mode, Popeye and the remediation executor talk directly to a real Kubernetes cluster created by <code>scripts/setup-kind-cluster.sh</code>. This deploys 3 nodes and 6 deliberately broken resources into the <code>payment-prod</code> namespace. The remediation executor runs real <code>kubectl</code> commands and verifies improvements with a before/after Popeye re-scan.</p>
+        <p><strong>Sandbox fallback:</strong> <code>mock-k8s-api</code> is a Python HTTP server returning the same 6 broken resources via a subset of the K8s REST API.</p>
       </div>
 
       <div class="mock-card">
-        <h4><span class="tag-mock">Mocked</span> Slack</h4>
-        <p>The <code>mock-slack</code> service receives incoming-webhook payloads and renders a Slack-card HTML page at <code>http://localhost:8003</code>. No Slack workspace, bot token, or incoming-webhook URL is required.</p>
-        <p><strong>Swap:</strong> change the n8n workflow's last node to POST to your real Slack incoming-webhook URL.</p>
+        <h4><span class="tag-real">Real</span> Popeye Binary</h4>
+        <p>In real mode, the scanner invokes the actual <code>popeye</code> Go binary (100+ analyzers) against the live cluster. If the binary isn't installed or times out, it falls back seamlessly to the built-in Python analyzers (14 codes covering Node, Deployment, Pod, Ingress, Service, PVC).</p>
       </div>
 
       <div class="mock-card">
-        <h4><span class="tag-mock">Mocked</span> Prometheus / Alertmanager</h4>
-        <p>The <code>alert.sh</code> script sends a single pre-built Alertmanager JSON payload (<code>PaymentAPIHighErrorRate</code>, 12.3% 5xx) directly to the n8n webhook. No real Prometheus, Alertmanager, or metrics scrape target is needed.</p>
-        <p><strong>Swap:</strong> configure a real Alertmanager to fire the same webhook to n8n.</p>
+        <h4><span class="tag-real">Real</span> Ollama LLM</h4>
+        <p>The <code>ollama/ollama</code> Docker container serves a real local LLM (<code>qwen2.5:0.5b</code> by default, auto-pulled on first boot). The dify-lite agent sends its findings to Ollama via the OpenAI-compatible API and gets genuine LLM reasoning back. Swap to <code>llama3.1:8b</code> for higher quality on GPU.</p>
+        <p><strong>Sandbox fallback:</strong> deterministic rule-based stub that produces instant remediation text without any LLM.</p>
       </div>
 
       <div class="mock-card">
-        <h4><span class="tag-real">Real</span> Popeye Scanner</h4>
-        <p>The <code>popeye-scanner</code> is a fully functional rules engine with 14 analyzers and 100+ checks. It queries the K8s API, evaluates cluster state against real Popeye severity codes (NO-002, DPL-000, POP-001, ING-001, PVC-001, etc.), and emits standard Popeye-shaped sanitizer JSON. The only difference from upstream Popeye is that it talks to the mock API instead of a live cluster.</p>
+        <h4><span class="tag-real">Real</span> n8n</h4>
+        <p>Docker mode uses the official <code>n8nio/n8n:latest</code> image with a visual workflow editor. The <code>aops-workflow.json</code> is auto-imported on first boot. Open <code>http://localhost:5678</code> to visually inspect and edit the workflow. The same JSON file is n8n-importable &mdash; no code changes needed.</p>
+        <p><strong>Sandbox fallback:</strong> lightweight Python <code>n8n-runner</code> that executes the same workflow graph.</p>
       </div>
 
       <div class="mock-card">
-        <h4><span class="tag-real">Real</span> Dify-lite Agent</h4>
-        <p>The <code>dify-lite</code> service is a real FastAPI app implementing an OpenAI-compatible chat-completions endpoint with a 2-round agentic tool-calling loop. In sandbox mode it uses a deterministic stub; in Docker mode it calls a real Ollama LLM (<code>qwen2.5:0.5b</code>). The tool-calling, prompt engineering, and output formatting are all production-grade.</p>
+        <h4><span class="tag-real">Real</span> Prometheus + Alertmanager</h4>
+        <p>Enable with <code>docker compose --profile monitoring up -d</code>. Uses real <code>prom/prometheus:v2.53.0</code> and <code>prom/alertmanager:v0.27.0</code> containers with pre-configured alert rules. Alertmanager fires the <code>PaymentAPIHighErrorRate</code> webhook to n8n when the 5xx rate exceeds 5% for 5 minutes.</p>
+        <p><strong>Sandbox fallback:</strong> <code>alert.sh</code> sends a single pre-built Alertmanager JSON payload via curl.</p>
       </div>
 
       <div class="mock-card">
-        <h4><span class="tag-real">Real</span> n8n Workflow</h4>
-        <p>The <code>aops-workflow.json</code> is a fully importable n8n workflow definition. The <code>n8n-runner</code> is a lightweight Python re-implementation that executes the same graph. In Docker mode you can swap it for the official <code>n8nio/n8n:latest</code> image and import the JSON directly &mdash; no code changes needed.</p>
+        <h4><span class="tag-real">Real</span> Slack Webhook</h4>
+        <p>Set <code>REAL_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...</code> when starting the stack. The slack-receiver will forward all remediation cards to your real Slack channel.</p>
+        <p><strong>Sandbox fallback:</strong> local HTML card renderer at <code>http://localhost:8003</code> with auto-refresh &mdash; no Slack workspace or credentials needed.</p>
+      </div>
+
+      <div class="mock-card">
+        <h4><span class="tag-real">Real</span> Remediation Executor</h4>
+        <p>Applies actual <code>kubectl</code> commands: rolls back broken images, raises memory limits on OOMKilled pods, creates missing StorageClasses, patches dangling Ingress routes. Then re-runs Popeye to produce a real before/after score comparison. Supports <code>DRY_RUN=1</code> for safety.</p>
       </div>
     </div>
 
     <div class="mock-note">
-      <strong>The tl;dr:</strong> The &ldquo;intelligence&rdquo; (Popeye scanning, agent reasoning, tool-calling, workflow orchestration) is all real.
-      The &ldquo;infrastructure&rdquo; (K8s cluster, Slack, Prometheus) is mocked so you can run the full pipeline on a laptop, in a Codespace, or air-gapped &mdash; zero external dependencies.
+      <strong>The tl;dr:</strong> In Docker mode with a kind cluster, <strong>every component is real</strong> &mdash; real K8s, real Popeye, real Ollama LLM, real n8n, real Prometheus, real kubectl remediation.
+      Sandbox mode swaps the infrastructure for lightweight Python stand-ins so you can run the full pipeline on a laptop, in a Codespace, or air-gapped &mdash; zero external dependencies.
     </div>
 
     <div class="codespaces-cta">
@@ -749,8 +766,8 @@
 <!-- ==================== QUICKSTART ==================== -->
 <section id="quickstart">
   <div class="wrap">
-    <h2>Two ways to run it</h2>
-    <p class="lead">Sandbox mode (no Docker) for quick demo · Docker mode for real Ollama.</p>
+    <h2>Three ways to run it</h2>
+    <p class="lead">Sandbox (no Docker) for quick demo · Docker sandbox (no cluster) · Full real stack (kind + Ollama + n8n + Prometheus).</p>
     <div class="qs">
       <div class="pane">
         <div class="pane-head">
@@ -775,21 +792,27 @@
       </div>
       <div class="pane">
         <div class="pane-head">
-          <span class="tag" style="background:linear-gradient(135deg,#7c5cff,#00d4ff)">DOCKER</span>
-          <span>real Ollama · qwen2.5:0.5b · 1.5-4 s</span>
+          <span class="tag" style="background:linear-gradient(135deg,#7c5cff,#00d4ff)">REAL STACK</span>
+          <span>kind + Popeye + Ollama + n8n + Prometheus · 1.5-4 s</span>
         </div>
-        <pre><span class="cmt"># bring up the full stack with real Ollama</span>
+        <pre><span class="cmt"># 1. Create a real K8s cluster with broken resources</span>
+<span class="cmd">./</span>scripts/setup-kind-cluster.sh up
+
+<span class="cmt"># 2. Point Docker at the cluster kubeconfig</span>
+<span class="cmd">export</span> KUBECONFIG_PATH=$(pwd)/.kubeconfig
+
+<span class="cmt"># 3. Bring up the full real stack</span>
 <span class="cmd">docker</span> <span class="arg">compose</span> up -d
 
-<span class="cmt"># the ollama-pull sidecar auto-pulls qwen2.5:0.5b</span>
-<span class="cmd">docker</span> <span class="arg">compose</span> logs -f ollama-pull
+<span class="cmt"># 4. Fire a test alert (or wait for real Prometheus)</span>
+<span class="cmd">./</span>run.sh alert
 
-<span class="cmt"># run the UAT matrix against the live stack</span>
-<span class="cmd">docker</span> <span class="arg">compose</span> exec n8n-runner \
-    python3 scripts/run_uat.py
+<span class="cmt"># 5. Trigger real kubectl remediation + re-scan</span>
+<span class="cmd">curl</span> -X POST http://localhost:8005/remediate
+<span class="cmd">curl</span> http://localhost:8005/status
 
-<span class="cmt"># swap to a bigger model on a GPU host</span>
-<span class="cmd">OLLAMA_MODEL</span>=llama3.1:8b <span class="cmd">docker</span> <span class="arg">compose</span> up -d</pre>
+<span class="cmt"># Enable real Prometheus + Alertmanager</span>
+<span class="cmd">docker</span> <span class="arg">compose</span> --profile monitoring up -d</pre>
       </div>
     </div>
   </div>
@@ -808,7 +831,7 @@
       </a>
     </div>
     <div class="meta">
-      Built by adventurewave-labs · MIT · 6 services · 14 Popeye analyzers · 10/10 UAT pass
+      Built by adventurewave-labs · MIT · 9+ services · real Popeye + Ollama + n8n · 10/10 UAT pass
     </div>
   </div>
 </footer>

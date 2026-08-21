@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'namespace']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 5m
+  receiver: 'aops-n8n'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'aops-n8n'
+      continue: true
+    - match:
+        severity: warning
+      receiver: 'aops-n8n'
+
+receivers:
+  - name: 'aops-n8n'
+    webhook_configs:
+      - url: 'http://n8n:5678/webhook/aops-alert'
+        send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'namespace']

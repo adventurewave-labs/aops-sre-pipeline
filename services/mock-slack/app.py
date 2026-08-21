@@ -23,6 +23,8 @@ import time
 import html
 import re
 import logging
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from string import Template
 
@@ -36,9 +38,48 @@ log = logging.getLogger("mock-slack")
 BIND_HOST = os.environ.get("MOCK_SLACK_HOST", "0.0.0.0")
 BIND_PORT = int(os.environ.get("MOCK_SLACK_PORT", "8003"))
 
+# Real Slack webhook URL — if set, forward alerts to real Slack in addition to local mock
+REAL_SLACK_WEBHOOK_URL = os.environ.get("REAL_SLACK_WEBHOOK_URL", "")
+
 # In-memory alert store (the demo only needs to survive the lifetime of the
 # process; persistence across restarts is out of scope.)
 ALERTS: list[dict] = []
+
+
+def _forward_to_real_slack(payload: dict) -> bool:
+    """Forward an alert to a real Slack incoming webhook."""
+    if not REAL_SLACK_WEBHOOK_URL:
+        return False
+    try:
+        slack_payload = {
+            "text": payload.get("text", ""),
+            "username": "A.O.P.S. SRE Pipeline",
+            "icon_emoji": ":robot_face:",
+            "attachments": [{
+                "color": "danger" if payload.get("severity") == "critical" else "warning",
+                "title": f"{payload.get('alert_name', 'Alert')} — {payload.get('namespace', '')}",
+                "text": payload.get("text", "")[:2000],
+                "fields": [
+                    {"title": "Severity", "value": payload.get("severity", "?"), "short": True},
+                    {"title": "Popeye Score", "value": f"{payload.get('score', '?')}/100 ({payload.get('grade', '?')})", "short": True},
+                    {"title": "Agent Duration", "value": f"{payload.get('duration_s', '?')}s", "short": True},
+                ],
+                "footer": "A.O.P.S. Pipeline",
+                "footer_icon": "https://github.com/adventurewave-labs/aops-sre-pipeline",
+            }],
+        }
+        data = json.dumps(slack_payload).encode("utf-8")
+        req = urllib.request.Request(
+            REAL_SLACK_WEBHOOK_URL, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            log.info("Forwarded to real Slack (HTTP %d)", r.status)
+            return r.status == 200
+    except Exception as e:
+        log.warning("Real Slack forward failed: %s", e)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +150,20 @@ class SlackHandler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path in ("/healthz", "/livez", "/readyz"):
             return self._send_json(200, {"status": "ok",
-                                         "alerts_received": len(ALERTS)})
+                                         "alerts_received": len(ALERTS),
+                                         "real_slack_configured": bool(REAL_SLACK_WEBHOOK_URL)})
         if u.path == "/alerts.json":
             return self._send_json(200, {"alerts": ALERTS})
+        if u.path == "remediation-status":
+            # Proxy to remediation executor if available
+            try:
+                req = urllib.request.Request(
+                    "http://localhost:8005/status")
+                with urllib.request.urlopen(req, timeout=3) as r:
+                    data = json.loads(r.read().decode())
+                return self._send_json(200, data)
+            except Exception:
+                return self._send_json(200, {"status": "remediation executor not running"})
         if u.path == "/" or u.path == "/slack":
             return self._render_html()
         return self._send_json(404, {"error": "not found"})
@@ -167,8 +219,12 @@ class SlackHandler(BaseHTTPRequestHandler):
         ALERTS.append(alert)
         log.info("Card stored (total=%d) alert=%s grade=%s",
                  len(ALERTS), alert["alert_name"], alert["grade"])
+        # Forward to real Slack if a webhook URL is configured
+        if REAL_SLACK_WEBHOOK_URL:
+            _forward_to_real_slack(alert)
         return self._send_json(200, {"ok": True, "received": alert["ts"],
-                                     "total_alerts": len(ALERTS)})
+                                     "total_alerts": len(ALERTS),
+                                     "slack_forwarded": bool(REAL_SLACK_WEBHOOK_URL)})
 
     def do_HEAD(self):
         return self.do_GET()

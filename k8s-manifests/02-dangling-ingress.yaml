@@ -1,0 +1,24 @@
+# Dangling Ingress — routes to a Service 'payment-frontend' that does NOT exist
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: payment-ingress
+  namespace: payment-prod
+  labels:
+    app: payment
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: "/"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: payments.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # This Service does NOT exist → dangling backend
+                name: payment-frontend
+                port:
+                  number: 80

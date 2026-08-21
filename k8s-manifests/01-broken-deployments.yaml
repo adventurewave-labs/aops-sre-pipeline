@@ -1,0 +1,73 @@
+# Broken deployments that trigger the pipeline.
+# - payment-api: references a non-existent image tag → ImagePullBackOff
+# - payment-worker: memory limit too tight → OOMKilled → CrashLoopBackOff
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: payment-prod
+  labels:
+    app: payment-api
+    tier: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+    spec:
+      containers:
+        - name: payment-api
+          # This image tag does NOT exist — will cause ImagePullBackOff
+          image: registry.internal/payments/payment-api:broken-v9
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: LOG_LEVEL
+              value: info
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-worker
+  namespace: payment-prod
+  labels:
+    app: payment-worker
+    tier: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-worker
+  template:
+    metadata:
+      labels:
+        app: payment-worker
+    spec:
+      containers:
+        - name: payment-worker
+          image: busybox:latest
+          command: ["sh", "-c", "echo Starting && sleep 2 && dd if=/dev/zero of=/dev/null bs=150M 2>/dev/null || true"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              # Limit intentionally too tight — container uses ~150M+ and gets OOMKilled
+              memory: 128Mi
+          env:
+            - name: QUEUE
+              value: payments

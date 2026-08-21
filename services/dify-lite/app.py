@@ -37,7 +37,7 @@ log = logging.getLogger("dify-lite")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-LLM_BACKEND = os.environ.get("AOPS_LLM_BACKEND", "auto").lower()
+LLM_BACKEND = os.environ.get("AOPS_LLM_BACKEND", "ollama").lower()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:0.5b")
 MOCK_K8S_URL = os.environ.get("MOCK_K8S_URL", "http://localhost:8001")
