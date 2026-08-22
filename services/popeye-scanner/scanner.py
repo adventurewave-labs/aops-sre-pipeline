@@ -2,9 +2,10 @@
 """
 Popeye-compatible Kubernetes sanitizer — the A.O.P.S. alternative to K8sGPT.
 
-Talks to the mock K8s API at $MOCK_K8S_URL (default http://localhost:8001),
-runs 100+ analyzer-shaped rules over the cluster state, and emits Popeye-shaped
-JSON that the Dify-lite agent can reason over.
+Reads cluster state through a KubeClient backend -- the mock-k8s-api fixture
+server in sandbox mode, or a live cluster via kubectl in real mode -- runs 14
+analyzer rules over it, and emits Popeye-shaped JSON that the Dify-lite agent
+can reason over. Every report states which backend produced it (`data_source`).
 
 Popeye codes used (matches upstream Popeye 0.11+):
   NO-001  NodeNotReady
@@ -31,6 +32,7 @@ import sys
 import json
 import time
 import logging
+import re
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field, asdict
@@ -51,12 +53,31 @@ AUTH_TOKEN = os.environ.get("MOCK_K8S_TOKEN", "aops-demo-token")
 NAMESPACE = os.environ.get("AOPS_NAMESPACE", "payment-prod")
 KUBECONFIG = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
 
-# POPEYE_MODE: "real" tries the Popeye binary first, falls back to built-in.
-#              "builtin" always uses the built-in Python analyzers.
-POPEYE_MODE = os.environ.get("POPEYE_MODE", "real").lower()
+# AOPS_MODE decides WHERE cluster state comes from. This is the single most
+# important switch in the service and it never degrades silently:
+#   "sandbox" -> mock-k8s-api fixtures. Reports are labelled data_source=fixtures.
+#   "real"    -> a live cluster via kubectl/kubeconfig. If the cluster is
+#                unreachable the scan FAILS (503). It must never fall back to
+#                fixtures while claiming to describe a real cluster.
+AOPS_MODE = os.environ.get("AOPS_MODE", "sandbox").lower()
+
+# POPEYE_MODE decides WHICH ENGINE produces findings from that state:
+#   "real"    -> prefer the upstream Popeye Go binary, fall back to the
+#                built-in analyzers (both read the same cluster, so this
+#                fallback changes fidelity, never provenance).
+#   "builtin" -> always use the built-in Python analyzers.
+POPEYE_MODE = os.environ.get("POPEYE_MODE", "builtin").lower()
 
 # Can we run the real Popeye binary?
 POPEYE_BIN = shutil.which("popeye")
+
+
+class ClusterUnreachable(RuntimeError):
+    """Raised in real mode when live cluster state cannot be read.
+
+    Deliberately fatal: serving fixture data under a real-mode label is the
+    one failure this service must never produce.
+    """
 
 # Popeye severity levels (int) matching upstream
 S_OK = 0
@@ -89,23 +110,136 @@ class Finding:
 
 
 # ---------------------------------------------------------------------------
-# HTTP client for the mock K8s API
+# Cluster access — two interchangeable backends behind one interface.
+#
+# The 14 built-in analyzers below only ever call _get(<k8s api path>). Which
+# backend answers that call is what separates sandbox mode from real mode, and
+# every report carries the answer in its `data_source` field.
 # ---------------------------------------------------------------------------
+
+# K8s API path -> (kubectl resource, namespaced)
+_KUBECTL_ROUTES: list[tuple[str, str, bool]] = [
+    (r"^/api/v1/nodes$",                                          "nodes",                  False),
+    (r"^/apis/apps/v1/namespaces/(?P<ns>[^/]+)/deployments$",     "deployments",            True),
+    (r"^/api/v1/namespaces/(?P<ns>[^/]+)/pods$",                  "pods",                   True),
+    (r"^/apis/networking\.k8s\.io/v1/namespaces/(?P<ns>[^/]+)/ingresses$",
+                                                                   "ingresses",              True),
+    (r"^/api/v1/namespaces/(?P<ns>[^/]+)/services$",              "services",               True),
+    (r"^/api/v1/namespaces/(?P<ns>[^/]+)/persistentvolumeclaims$",
+                                                                   "persistentvolumeclaims", True),
+]
+
+
+class KubeClient:
+    """Reads Kubernetes list resources by API path."""
+
+    data_source = "unknown"
+
+    def get(self, path: str) -> dict:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def probe(self) -> tuple[bool, str]:  # pragma: no cover - interface
+        raise NotImplementedError
+
+
+class MockHTTPClient(KubeClient):
+    """Sandbox backend: the deterministic mock-k8s-api fixture server."""
+
+    data_source = "fixtures"
+
+    def get(self, path: str) -> dict:
+        url = f"{MOCK_K8S_URL.rstrip('/')}{path}"
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {AUTH_TOKEN}",
+            "Accept": "application/json",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            log.warning("mock K8s API %s -> HTTP %d", path, e.code)
+            return {"items": []}
+        except Exception as e:
+            log.error("mock K8s API %s -> %s", path, e)
+            return {"items": []}
+
+    def probe(self) -> tuple[bool, str]:
+        try:
+            self.get("/healthz")
+            return True, f"mock-k8s-api at {MOCK_K8S_URL}"
+        except Exception as e:
+            return False, str(e)
+
+
+class KubectlClient(KubeClient):
+    """Real backend: live cluster state via kubectl + kubeconfig.
+
+    Any failure raises ClusterUnreachable rather than returning an empty list,
+    so a broken connection can never be mistaken for a healthy cluster.
+    """
+
+    data_source = "live-cluster"
+
+    def _run(self, args: list[str]) -> str:
+        cmd = ["kubectl", "--kubeconfig", KUBECONFIG] + args
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except FileNotFoundError:
+            raise ClusterUnreachable("kubectl not found in PATH")
+        except subprocess.TimeoutExpired:
+            raise ClusterUnreachable(f"kubectl timed out: {' '.join(args)}")
+        if r.returncode != 0:
+            raise ClusterUnreachable(
+                f"kubectl {' '.join(args)} failed (rc={r.returncode}): "
+                f"{r.stderr.strip()[:300]}")
+        return r.stdout
+
+    def get(self, path: str) -> dict:
+        for pattern, resource, namespaced in _KUBECTL_ROUTES:
+            m = re.match(pattern, path)
+            if not m:
+                continue
+            args = ["get", resource, "-o", "json"]
+            if namespaced:
+                args += ["-n", m.group("ns")]
+            return json.loads(self._run(args))
+        raise ClusterUnreachable(f"no kubectl route for API path {path!r}")
+
+    def probe(self) -> tuple[bool, str]:
+        try:
+            raw = json.loads(self._run(["get", "nodes", "-o", "json"]))
+            n = len(raw.get("items", []))
+            return True, f"live cluster via {KUBECONFIG} ({n} nodes)"
+        except ClusterUnreachable as e:
+            return False, str(e)
+
+
+def make_client(mode: str | None = None) -> KubeClient:
+    mode = (mode or AOPS_MODE).lower()
+    return KubectlClient() if mode == "real" else MockHTTPClient()
+
+
+CLIENT: KubeClient = make_client()
+
+
 def _get(path: str) -> dict:
-    url = f"{MOCK_K8S_URL.rstrip('/')}{path}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {AUTH_TOKEN}",
-        "Accept": "application/json",
-    })
+    return CLIENT.get(path)
+
+
+def _safe_get(path: str) -> dict:
+    """_get for cosmetic counters — never propagates a cluster error."""
     try:
-        with urllib.request.urlopen(req, timeout=5) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        log.warning("K8s API %s -> HTTP %d", path, e.code)
+        return _get(path)
+    except Exception:
         return {"items": []}
-    except Exception as e:
-        log.error("K8s API %s -> %s", path, e)
-        return {"items": []}
+
+
+def grade_from_score(score: int) -> str:
+    """Popeye-compatible letter grade for a 0-100 score."""
+    for cut, grade in ((90, "A"), (80, "B"), (70, "C"), (60, "D")):
+        if score >= cut:
+            return grade
+    return "F"
 
 
 def _res(verbs, namespaced=True, kind="", items=None):
@@ -401,19 +535,37 @@ def _run_real_popeye(ns: str) -> dict | None:
 
 
 def build_report(ns: str) -> dict:
-    """Run Popeye scan — tries real binary first, falls back to built-in."""
-    # Try real Popeye binary first
+    """Run a scan.
+
+    Engine selection (Popeye binary vs built-in analyzers) is independent of
+    data provenance: both engines read whatever cluster the active KubeClient
+    points at. In real mode a cluster error propagates as ClusterUnreachable
+    and the HTTP layer turns it into a 503 — we never substitute fixtures.
+    """
+    if AOPS_MODE == "real":
+        ok, detail = CLIENT.probe()
+        if not ok:
+            raise ClusterUnreachable(
+                f"AOPS_MODE=real but the cluster is unreachable: {detail}")
+        log.info("Real mode: %s", detail)
+
     if POPEYE_MODE == "real":
-        popeye_raw = _run_real_popeye(ns)
-        if popeye_raw is not None:
-            # Convert real Popeye output to our format
+        if not POPEYE_BIN:
+            log.info("POPEYE_MODE=real but no popeye binary in PATH — "
+                     "using built-in analyzers against the same cluster")
+        elif AOPS_MODE != "real":
+            log.info("POPEYE_MODE=real is only meaningful with AOPS_MODE=real "
+                     "(the binary needs a kubeconfig) — using built-in analyzers")
+        else:
             started = time.time()
-            findings = _parse_real_popeye(popeye_raw)
-            if findings:
+            popeye_raw = _run_real_popeye(ns)
+            if popeye_raw is not None:
+                findings = _parse_real_popeye(popeye_raw)
                 log.info("Parsed %d findings from real Popeye output", len(findings))
-                return _assemble_report(ns, findings, started)
-            log.info("Could not parse real Popeye output, falling back to built-in")
-        log.info("Real Popeye unavailable, falling back to built-in analyzers")
+                return _assemble_report(ns, findings, started,
+                                        engine="popeye-binary")
+            log.warning("Real Popeye binary produced no usable output — "
+                        "falling back to built-in analyzers (same cluster)")
 
     return _build_report_builtin(ns)
 
@@ -421,47 +573,79 @@ def build_report(ns: str) -> dict:
 def _parse_real_popeye(popeye_raw: dict) -> list[Finding]:
     """Parse real Popeye JSON output into Finding objects.
 
-    Popeye outputs a nested dict with sections containing sanitizers.
-    This is a best-effort parser covering the common output shapes.
+    Schema (verified against derailed/popeye v0.22.1 internal/report golden
+    test, and byte-identical in v0.21.x apart from the section key name):
+
+        {"popeye": {
+            "report_time": "...", "score": 100, "grade": "A",
+            "sections": [                       # "sanitizers" in popeye <= 0.20
+              {"linter": "pods", "gvr": "v1/pods",
+               "tally": {"ok":1,"info":0,"warning":0,"error":0,"score":100},
+               "issues": {"payment-prod/payment-api-abc": [
+                   {"group":"__root__","gvr":"v1/pods","level":2,
+                    "message":"[POP-204] Pod is in ImagePullBackOff"}]}}],
+            "errors": {...}}}
+
+    `sections` is a LIST, and `issues` maps a resource FQN to a LIST of issues.
+    Levels are ints 0..3 (ok/info/warn/error) per internal/rules/level.go.
     """
-    findings = []
-    for section_name, section_data in popeye_raw.items():
-        if not isinstance(section_data, dict):
+    report = popeye_raw.get("popeye", popeye_raw)
+    if not isinstance(report, dict):
+        return []
+
+    sections = report.get("sections")
+    if sections is None:
+        sections = report.get("sanitizers")      # popeye <= 0.20
+    if not isinstance(sections, list):
+        log.warning("Popeye output has no 'sections'/'sanitizers' list — "
+                    "unrecognised schema, keys=%s", list(report)[:8])
+        return []
+
+    findings: list[Finding] = []
+    for section in sections:
+        if not isinstance(section, dict):
             continue
-        for resource_type, resources in section_data.items():
-            if not isinstance(resources, dict):
+        linter = section.get("linter") or section.get("sanitizer") or "unknown"
+        gvr = section.get("gvr", "")
+        issues = section.get("issues") or {}
+        if not isinstance(issues, dict):
+            continue
+        for fqn, issue_list in issues.items():
+            if not isinstance(issue_list, list):
                 continue
-            for resource_name, resource_info in resources.items():
-                if not isinstance(resource_info, dict):
+            # Popeye keys issues by "namespace/name" (or bare name, cluster-scoped)
+            name = fqn.split("/", 1)[1] if "/" in fqn else fqn
+            for issue in issue_list:
+                if not isinstance(issue, dict):
                     continue
-                # Popeye stores issues under various keys per version
-                for issue_container_key in ("sanitizers", "issues", "trolls"):
-                    issues = resource_info.get(issue_container_key, [])
-                    if not isinstance(issues, list):
-                        continue
-                    for issue in issues:
-                        if not isinstance(issue, dict):
-                            continue
-                        code = issue.get("code", "POP-000")
-                        # Popeye uses level 0-3
-                        level = issue.get("level", 0)
-                        if isinstance(level, str):
-                            level_map = {"ok": S_OK, "info": S_INFO,
-                                        "warn": S_WARN, "error": S_ERROR}
-                            level = level_map.get(level.lower(), S_WARN)
-                        severity = int(level)
-                        message = issue.get("message", "")
-                        if not message:
-                            message = json.dumps(issue)
-                        findings.append(Finding(
-                            group=resource_type,
-                            gvr=f"v1/{resource_type}",
-                            name=resource_name,
-                            code=code,
-                            severity=severity,
-                            message=message,
-                        ))
-    return findings
+                level = issue.get("level", S_OK)
+                if isinstance(level, str):
+                    level = {"ok": S_OK, "info": S_INFO,
+                             "warn": S_WARN, "warning": S_WARN,
+                             "error": S_ERROR}.get(level.lower(), S_WARN)
+                try:
+                    severity = int(level)
+                except (TypeError, ValueError):
+                    severity = S_WARN
+                severity = max(S_OK, min(S_ERROR, severity))
+
+                message = issue.get("message", "") or json.dumps(issue)
+                # Popeye prefixes messages with its code: "[POP-204] Pod is ..."
+                m = re.match(r"^\[(?P<code>[A-Z]+-\d+)\]\s*(?P<rest>.*)$", message)
+                code = m.group("code") if m else "POP-000"
+                if m:
+                    message = m.group("rest").strip() or message
+
+                findings.append(Finding(
+                    group=linter,
+                    gvr=issue.get("gvr") or gvr or f"v1/{linter}",
+                    name=name,
+                    code=code,
+                    severity=severity,
+                    message=message,
+                ))
+    # Popeye emits ok-level entries for clean resources; they are not findings.
+    return [f for f in findings if f.severity > S_OK]
 
 
 def _build_report_builtin(ns: str) -> dict:
@@ -476,10 +660,11 @@ def _build_report_builtin(ns: str) -> dict:
     findings += analyze_services(ns)
     findings += analyze_pvcs(ns)
 
-    return _assemble_report(ns, findings, started)
+    return _assemble_report(ns, findings, started, engine="builtin-analyzers")
 
 
-def _assemble_report(ns: str, findings: list[Finding], started: float) -> dict:
+def _assemble_report(ns: str, findings: list[Finding], started: float,
+                     engine: str = "builtin-analyzers") -> dict:
     """Assemble findings into the standard A.O.P.S. report format."""
     by_group: dict[str, list[Finding]] = {}
     for f in findings:
@@ -523,14 +708,19 @@ def _assemble_report(ns: str, findings: list[Finding], started: float) -> dict:
 
     return {
         "scanner": "popeye",
-        "popeye_version": "real-binary" if POPEYE_BIN and POPEYE_MODE == "real" else "builtin-aops",
+        "popeye_version": engine,
         "popeye_mode": POPEYE_MODE,
+        # Provenance. `data_source` answers the only question that matters when
+        # someone acts on this report: did it describe a real cluster?
+        "aops_mode": AOPS_MODE,
+        "data_source": CLIENT.data_source,
+        "engine": engine,
         "namespace": ns,
         "scan_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_seconds": elapsed,
         "score": score,
         "grade": grade,
-        "resources_scanned": sum(len(_get(p).get("items", []))
+        "resources_scanned": sum(len(_safe_get(p).get("items", []))
                                  for p in [
                                      f"/api/v1/nodes",
                                      f"/apis/apps/v1/namespaces/{ns}/deployments",
