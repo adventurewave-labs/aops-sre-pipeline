@@ -39,7 +39,7 @@
       "label": "Remediation Executor (dry-run)"
     }
   },
-  "postCreateCommand": "chmod +x run.sh services/prometheus-mock/alert.sh && ./run.sh up-sandbox && echo '' && echo '========================================' && echo '  A.O.P.S. stack is LIVE in Codespace!' && echo '========================================' && echo '' && echo 'Ports:' && echo '  Mock Slack UI .... http://localhost:8003' && echo '  n8n Runner ...... http://localhost:5678' && echo '  Mock K8s API .... http://localhost:8001' && echo '  Popeye Scanner .. http://localhost:8004' && echo '  Dify-lite Agent . http://localhost:8002' && echo '' && echo 'Fire an alert:' && echo '  ./run.sh alert' && echo '  ./run.sh status' && echo ''",
+  "postCreateCommand": "chmod +x run.sh scripts/*.sh services/prometheus-mock/alert.sh 2>/dev/null || true; printf '%s\\n' '========================================' '  A.O.P.S. Codespace ready - stack NOT started' '========================================' '' 'Build and start the sandbox stack (~3-5 min, builds 6 images):' '  ./run.sh up-sandbox' '' 'Then:' '  ./run.sh alert    # fire an alert through the pipeline' '  ./run.sh status   # service health' '  ./run.sh demo     # scripted walkthrough' '  ./run.sh stop     # tear down' '' 'Ports forward automatically once the stack is up.' ''",
   "customizations": {
     "vscode": {
       "extensions": [

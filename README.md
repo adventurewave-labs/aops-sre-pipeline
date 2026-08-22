@@ -86,7 +86,15 @@ End-to-end latency through the full six-node workflow: **~55 ms**. This is what 
 
 ### GitHub Codespaces — zero setup
 
-Click the badge above. The devcontainer installs Python 3.11 and Docker-in-Docker, starts the sandbox stack, and forwards every port.
+Click the badge above. The devcontainer provisions Python 3.11 and Docker-in-Docker and
+forwards every port. It deliberately does **not** build the stack during container creation —
+a six-image build inside `postCreateCommand` can exceed the creation window and leave the
+Codespace in recovery mode. Once the editor loads:
+
+```bash
+./run.sh up-sandbox   # ~3-5 min for the six image builds
+./run.sh alert
+```
 
 ### Real mode — Docker + a kind cluster
 
