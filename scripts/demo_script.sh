@@ -93,8 +93,8 @@ echo -e "${yellow}Press [enter] to boot the stack...${reset}"
 read -r
 
 # ===== 3. Boot the stack =====
-echo -e "${bold}\n▸ ./run.sh up-no-ollama${reset}"
-./run.sh up-no-ollama 2>&1 | sed 's/^/  /'
+echo -e "${bold}\n▸ ./run.sh up-sandbox${reset}"
+./run.sh up-sandbox 2>&1 | sed 's/^/  /'
 sleep 1.0
 
 # ===== 4. Health probes (with detailed dify-lite /healthz) =====

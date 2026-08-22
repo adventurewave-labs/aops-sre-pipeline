@@ -493,7 +493,7 @@
   <div class="wrap">
     <div class="pill fade fade-1">
       <span class="dot"></span>
-      v0.1 · 10/10 UAT pass · MIT · 16 topics
+      v0.1 · 14/14 UAT pass · MIT · 16 topics
     </div>
     <h1 class="hero-title fade fade-2">
       The autonomous <span class="grad">SRE pipeline</span><br>
@@ -520,8 +520,8 @@
 
     <div class="metrics fade fade-4">
       <div class="metric"><div class="num">9+</div><div class="lbl">Services</div></div>
-      <div class="metric"><div class="num">10/10</div><div class="lbl">UAT pass</div></div>
-      <div class="metric"><div class="num">23ms</div><div class="lbl">Sandbox E2E</div></div>
+      <div class="metric"><div class="num">14/14</div><div class="lbl">UAT pass</div></div>
+      <div class="metric"><div class="num">~55ms</div><div class="lbl">Sandbox E2E</div></div>
       <div class="metric"><div class="num">1.5-4s</div><div class="lbl">Real E2E</div></div>
     </div>
   </div>
@@ -730,7 +730,7 @@
 <!-- ==================== UAT ==================== -->
 <section id="uat">
   <div class="wrap">
-    <h2>10/10 acceptance tests pass</h2>
+    <h2>14/14 acceptance tests pass</h2>
     <p class="lead">Every component was verified in isolation and the full chain was tested end-to-end.</p>
     <div class="uat">
       <table>
@@ -750,14 +750,14 @@
           <tr><td><code>T05</code></td><td>dify-lite chat completion produces a structured remediation</td><td><span class="pass">✓ pass</span></td><td>17 ms</td></tr>
           <tr><td><code>T06</code></td><td>mock-slack stores the rendered Slack card</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
           <tr><td><code>T07</code></td><td>n8n-runner workflow has 5 nodes in expected order</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
-          <tr><td><code>T08</code></td><td>end-to-end alert flow completes in &lt; 2 s</td><td><span class="pass">✓ pass</span></td><td>23 ms</td></tr>
+          <tr><td><code>T08</code></td><td>end-to-end alert flow completes in &lt; 2 s</td><td><span class="pass">✓ pass</span></td><td>~55ms</td></tr>
           <tr><td><code>T09</code></td><td>idempotency: firing N times produces N distinct runs</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
           <tr><td><code>T10</code></td><td>resilience: dify-lite survives malformed message body</td><td><span class="pass">✓ pass</span></td><td>3 ms</td></tr>
         </tbody>
       </table>
       <div class="uat-summary">
-        <span class="big">10 / 10</span>
-        <span>passed · 0 failed · end-to-end latency 23 ms · 24 Popeye findings · 4.2 KB remediation runbook</span>
+        <span class="big">14 / 14</span>
+        <span>passed · 0 failed · end-to-end latency ~55ms · 24 Popeye findings · 4.2 KB remediation runbook</span>
       </div>
     </div>
   </div>
@@ -772,14 +772,14 @@
       <div class="pane">
         <div class="pane-head">
           <span class="tag" style="background:#888">SANDBOX</span>
-          <span>no Docker · stub backend · 23 ms</span>
+          <span>no Docker · stub backend · ~55ms</span>
         </div>
         <pre><span class="cmt"># clone + start all 5 services as Python processes</span>
 <span class="cmd">git</span> <span class="arg">clone</span> https://github.com/adventurewave-labs/aops-sre-pipeline.git
 <span class="cmd">cd</span> aops-sre-pipeline
 
 <span class="cmt"># bring up the stack (no Docker needed)</span>
-<span class="cmd">./</span>run.sh up-no-ollama
+<span class="cmd">./</span>run.sh up-sandbox
 
 <span class="cmt"># fire the PaymentAPIHighErrorRate alert</span>
 <span class="cmd">./</span>run.sh alert
@@ -831,7 +831,7 @@
       </a>
     </div>
     <div class="meta">
-      Built by adventurewave-labs · MIT · 9+ services · real Popeye + Ollama + n8n · 10/10 UAT pass
+      Built by adventurewave-labs · MIT · 9+ services · real Popeye + Ollama + n8n · 14/14 UAT pass
     </div>
   </div>
 </footer>
