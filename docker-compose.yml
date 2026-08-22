@@ -226,10 +226,15 @@ services:
     container_name: aops-n8n-import
     user: node
     entrypoint: ["/bin/sh", "-c"]
+    # `update:workflow --all --active=true` is deprecated and a no-op on
+    # current n8n ("publishing via --all is no longer supported"), so the
+    # workflow imported but was never published and the webhook 404'd.
+    # Publish by id, falling back to the old flag for older n8n images.
     command: >
       "n8n import:workflow --input=/data/n8n-workflow.json &&
-       n8n update:workflow --all --active=true &&
-       echo 'A.O.P.S. workflow imported and activated'"
+       { n8n publish:workflow --id=aopsRemediation1 ||
+         n8n update:workflow --id=aopsRemediation1 --active=true; } &&
+       echo 'A.O.P.S. workflow imported and published'"
     volumes:
       - ./services/n8n-runner/aops-workflow.json:/data/n8n-workflow.json:ro
       - n8n-data:/home/node/.n8n
