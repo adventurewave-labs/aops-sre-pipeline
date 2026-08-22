@@ -1,0 +1,20 @@
+{
+  "popeye": {
+    "report_time": "2026-08-21T18:04:11Z",
+    "score": 100,
+    "grade": "A",
+    "sanitizers": [
+      {
+        "sanitizer": "pods",
+        "gvr": "v1/pods",
+        "tally": {"ok": 0, "info": 0, "warning": 1, "error": 0, "score": 80},
+        "issues": {
+          "payment-prod/legacy-pod": [
+            {"group": "__root__", "gvr": "v1/pods", "level": "warn",
+             "message": "[POP-206] No PodDisruptionBudget defined"}
+          ]
+        }
+      }
+    ]
+  }
+}

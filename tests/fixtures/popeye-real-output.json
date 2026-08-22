@@ -1,0 +1,61 @@
+{
+  "popeye": {
+    "report_time": "2026-08-21T18:04:11Z",
+    "score": 61,
+    "grade": "D",
+    "sections": [
+      {
+        "linter": "nodes",
+        "gvr": "v1/nodes",
+        "tally": {"ok": 2, "info": 0, "warning": 1, "error": 0, "score": 66},
+        "issues": {
+          "aops-demo-worker2": [
+            {"group": "__root__", "gvr": "v1/nodes", "level": 2,
+             "message": "[POP-401] Node is under disk pressure"}
+          ]
+        }
+      },
+      {
+        "linter": "pods",
+        "gvr": "v1/pods",
+        "tally": {"ok": 0, "info": 1, "warning": 0, "error": 2, "score": 33},
+        "issues": {
+          "payment-prod/payment-api-7d8f6c5b9x-abc12": [
+            {"group": "payment-api", "gvr": "v1/pods", "level": 3,
+             "message": "[POP-204] Pod is in an unhappy phase ([ImagePullBackOff])"}
+          ],
+          "payment-prod/payment-worker-6c9d4f8a2y-jkl90": [
+            {"group": "payment-worker", "gvr": "v1/pods", "level": 3,
+             "message": "[POP-205] Pod was OOMKilled and is in CrashLoopBackOff"},
+            {"group": "__root__", "gvr": "v1/pods", "level": 1,
+             "message": "[POP-206] No PodDisruptionBudget defined"}
+          ],
+          "payment-prod/payment-api-7d8f6c5b9x-ok999": [
+            {"group": "__root__", "gvr": "v1/pods", "level": 0,
+             "message": "[POP-100] All good"}
+          ]
+        }
+      },
+      {
+        "linter": "persistentvolumeclaims",
+        "gvr": "v1/persistentvolumeclaims",
+        "tally": {"ok": 0, "info": 0, "warning": 0, "error": 1, "score": 0},
+        "issues": {
+          "payment-prod/payment-data-pvc": [
+            {"group": "__root__", "gvr": "v1/persistentvolumeclaims", "level": 3,
+             "message": "[POP-1002] Pending volume claim detected"}
+          ]
+        }
+      },
+      {
+        "linter": "services",
+        "gvr": "v1/services",
+        "tally": {"ok": 1, "info": 0, "warning": 0, "error": 0, "score": 100},
+        "issues": {}
+      }
+    ],
+    "errors": {}
+  },
+  "ClusterName": "kind-aops-demo",
+  "ContextName": "kind-aops-demo"
+}
