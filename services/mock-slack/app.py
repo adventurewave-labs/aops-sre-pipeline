@@ -62,6 +62,7 @@ def _forward_to_real_slack(payload: dict) -> bool:
                 "fields": [
                     {"title": "Severity", "value": payload.get("severity", "?"), "short": True},
                     {"title": "Popeye Score", "value": f"{payload.get('score', '?')}/100 ({payload.get('grade', '?')})", "short": True},
+                    {"title": "Data source", "value": payload.get("data_source", "unknown"), "short": True},
                     {"title": "Agent Duration", "value": f"{payload.get('duration_s', '?')}s", "short": True},
                 ],
                 "footer": "A.O.P.S. Pipeline",
@@ -203,6 +204,11 @@ class SlackHandler(BaseHTTPRequestHandler):
             alert["severity"] = payload.get("severity", "critical")
             alert["score"] = payload.get("score", 73)
             alert["grade"] = payload.get("grade", "C")
+            # Provenance — the card must say whether this describes a real
+            # cluster or the bundled fixtures. An operator acting on a
+            # remediation runbook needs to know which.
+            alert["data_source"] = payload.get("data_source", "unknown")
+            alert["engine"] = payload.get("engine", "unknown")
             alert["trace"] = payload.get("trace", {})
             alert["duration_s"] = payload.get("duration_s")
             alert["remediation_html"] = md_to_html(text)
@@ -214,6 +220,8 @@ class SlackHandler(BaseHTTPRequestHandler):
             alert["severity"] = "critical"
             alert["score"] = 73
             alert["grade"] = "C"
+            alert["data_source"] = "unknown"
+            alert["engine"] = "unknown"
             alert["remediation_html"] = md_to_html(raw)
 
         ALERTS.append(alert)
@@ -270,6 +278,13 @@ class SlackHandler(BaseHTTPRequestHandler):
                                           str(a.get("score","")))
                     chunk = chunk.replace("{{ a.grade }}",
                                           html.escape(str(a.get("grade",""))))
+                    ds = str(a.get("data_source", "unknown"))
+                    chunk = chunk.replace("{{ a.data_source }}", html.escape(ds))
+                    chunk = chunk.replace("{{ a.engine }}",
+                                          html.escape(str(a.get("engine", "unknown"))))
+                    chunk = chunk.replace(
+                        "{{ a.provenance_class }}",
+                        "prov-live" if ds == "live-cluster" else "prov-fixtures")
                     if a.get("error"):
                         chunk = chunk.replace("{{ a.error }}",
                                               html.escape(str(a["error"])))

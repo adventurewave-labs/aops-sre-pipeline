@@ -37,6 +37,12 @@
     .card .md pre { display:block; padding:10px 12px; margin:6px 0; }
     .empty { padding:60px 20px; text-align:center; color:#6b6e72;
              font-style:italic; }
+    .prov { display:inline-block; padding:1px 7px; border-radius:10px;
+           font-size:11px; font-weight:600; letter-spacing:.02em;
+           vertical-align:middle; }
+    .prov-live { background:#0f3d24; color:#4ade80; border:1px solid #1f6b3f; }
+    .prov-fixtures { background:#3d2f0f; color:#fbbf24; border:1px solid #6b551f; }
+    .prov-engine { font-size:11px; opacity:.55; margin-left:4px; }
   </style>
 </head>
 <body>
@@ -61,7 +67,9 @@
         <div class="title"><span class="icon">⚠</span> {{ a.alert_name }}</div>
         <div class="meta">namespace: <code>{{ a.namespace }}</code> ·
                          severity: <code>{{ a.severity }}</code> ·
-                         score: <code>{{ a.score }}/100 ({{ a.grade }})</code></div>
+                         score: <code>{{ a.score }}/100 ({{ a.grade }})</code> ·
+                         <span class="prov {{ a.provenance_class }}">{{ a.data_source }}</span>
+                         <span class="prov-engine">{{ a.engine }}</span></div>
         {% if a.error %}
           <pre>ERROR: {{ a.error }}</pre>
         {% else %}
