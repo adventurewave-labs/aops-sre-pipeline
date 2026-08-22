@@ -67,8 +67,11 @@ check "alert rules are loaded" \
 echo -e "\n${BOLD}5. n8n workflow import (D6)${RST}"
 check "n8n has the A.O.P.S. workflow" \
   bash -c "docker compose exec -T n8n n8n list:workflow 2>/dev/null | grep -qi 'A.O.P.S'"
-check "webhook /webhook/aops-alert resolves (not 404)" \
-  bash -c "test \"\$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://localhost:5678/webhook/aops-alert -H 'Content-Type: application/json' -d '{}')\" != 404"
+# curl reports 000 when it cannot connect at all. Asserting only "!= 404"
+# therefore PASSES when n8n is dead, which is the exact opposite of what this
+# script exists to do. Require a real HTTP response as well.
+check "webhook /webhook/aops-alert resolves (n8n answered, not 404)" \
+  bash -c "code=\$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://localhost:5678/webhook/aops-alert -H 'Content-Type: application/json' -d '{}'); test \"\$code\" != 000 && test \"\$code\" != 404"
 
 echo -e "\n${BOLD}6. Alerting path${RST}"
 echo -e "  ${YEL}note${RST} PaymentAPIHighErrorRate has 'for: 5m' — allow 5-6 minutes"
