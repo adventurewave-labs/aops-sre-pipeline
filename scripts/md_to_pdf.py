@@ -11,9 +11,15 @@ import os
 import sys
 import subprocess
 import shutil
+from pathlib import Path
 
-MD_PATH = "/home/z/my-project/download/AOPS-UAT-Report.md"
-PDF_PATH = "/home/z/my-project/download/AOPS-UAT-Report.pdf"
+# Repo-relative by default; override by passing paths as argv[1] / argv[2].
+REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_MD = REPO_ROOT / "var" / "AOPS-UAT-Report.md"
+_DEFAULT_PDF = REPO_ROOT / "var" / "AOPS-UAT-Report.pdf"
+
+MD_PATH = sys.argv[1] if len(sys.argv) > 1 else str(_DEFAULT_MD)
+PDF_PATH = sys.argv[2] if len(sys.argv) > 2 else str(_DEFAULT_PDF)
 
 import markdown
 

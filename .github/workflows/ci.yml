@@ -138,6 +138,45 @@ jobs:
           if res["failed"]:
               print("UAT failures"); sys.exit(1)
           print(f"badge matches reality: {cp}/{ct}")
+
+          # Latency drift. The demo script used to hardcode "~23 ms" while the
+          # README badge said "~55ms" -- two different numbers for the same
+          # thing, neither measured. Every latency claim in the docs must now
+          # sit within a sane band of what the suite actually measured, and no
+          # source file may hardcode a latency in the demo output.
+          measured_ms = None
+          for t in res.get("results", []):
+              if t.get("test_id") == "T08" or "end-to-end" in t.get("name", "").lower():
+                  measured_ms = t.get("duration_ms")
+                  break
+
+          claims = []
+          for src in ("README.md", "site/index.html"):
+              try:
+                  text = open(src).read()
+              except FileNotFoundError:
+                  continue
+              for m in re.finditer(r"~\s*(\d+(?:\.\d+)?)\s*ms", text):
+                  claims.append((src, float(m.group(1))))
+
+          if measured_ms is None:
+              print("WARN: suite reported no end-to-end duration; skipping latency check")
+          else:
+              print(f"measured end-to-end: {measured_ms} ms")
+              bad = [(s_, v) for s_, v in claims if not (measured_ms * 0.4 <= v <= measured_ms * 2.5)]
+              for s_, v in bad:
+                  print(f"{s_} claims ~{v:g}ms but the suite measured {measured_ms}ms")
+              if bad:
+                  sys.exit(1)
+              print(f"{len(claims)} latency claim(s) consistent with measurement")
+
+          # No hardcoded latency in the demo script -- it must interpolate.
+          demo = open("scripts/demo_script.sh").read()
+          hardcoded = re.findall(r"(?<!\$\{)(?<![A-Z_])\b\d+\s*ms\b", demo)
+          if hardcoded:
+              print(f"scripts/demo_script.sh hardcodes a latency: {hardcoded}")
+              sys.exit(1)
+          print("demo script hardcodes no latency")
           PY
 
       - name: Service logs on failure
