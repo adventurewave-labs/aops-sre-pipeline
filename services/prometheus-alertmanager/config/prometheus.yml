@@ -1,3 +1,11 @@
+# Prometheus scrape config for A.O.P.S. real mode.
+#
+# Every rule in alert_rules.yml is written against kube-state-metrics series
+# (kube_pod_container_status_restarts_total, kube_node_status_condition,
+# kube_deployment_status_replicas_available, kube_persistentvolumeclaim_status_phase).
+# KSM is deployed into the kind cluster by scripts/setup-kind-cluster.sh and
+# exposed on NodePort 30081; the kind control-plane container maps that port,
+# and Prometheus reaches it over the `kind` docker network.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -10,17 +18,30 @@ rule_files:
 alerting:
   alertmanagers:
     - static_configs:
-        - targets:
-          - 'alertmanager:9093'
+        - targets: ['alertmanager:9093']
 
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  # If running against a real kind cluster, scrape kube-state-metrics
-  # and node-exporter for real metrics.
+  # kube-state-metrics in the kind cluster, via the control-plane NodePort.
+  # KSM_TARGET defaults to the kind control-plane container name; override it
+  # for a non-kind cluster.
   - job_name: 'kube-state-metrics'
+    scrape_interval: 15s
     static_configs:
-      - targets: ['kube-state-metrics:8080']
-    scrape_interval: 30s
+      - targets: ['aops-demo-control-plane:30081']
+        labels:
+          source: 'kube-state-metrics'
+
+  # The demo workload's own RED metrics (http_requests_total), used by the
+  # PaymentAPIHighErrorRate rule. Served by the payment-api Deployment.
+  - job_name: 'payment-api'
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['aops-demo-control-plane:30082']
+        labels:
+          namespace: 'payment-prod'
+          service: 'payment-api'

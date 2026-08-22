@@ -38,6 +38,11 @@ Thumbs.db
 .env
 .env.local
 *.local
+# kubeconfigs written by scripts/setup-kind-cluster.sh — cluster credentials,
+# never commit these
+.kubeconfig
+.kubeconfig.internal
+scripts/kind-config.yaml
 
 # Logs
 *.log

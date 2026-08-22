@@ -1,0 +1,42 @@
+# Real-mode overlay.
+#
+#   ./scripts/setup-kind-cluster.sh up
+#   export KUBECONFIG_PATH=$(pwd)/.kubeconfig.internal
+#   docker compose -f docker-compose.yml -f docker-compose.real.yml \
+#          --profile monitoring up -d
+#
+# What this overlay changes, and why each change is load-bearing:
+#
+#   1. Joins the external `kind` network, so containers can resolve
+#      aops-demo-control-plane. Without it every kubectl call from a container
+#      is connection-refused, whatever the kubeconfig says.
+#   2. Switches the scanner to AOPS_MODE=real, so it reads the live cluster
+#      instead of fixtures — and fails with 503 rather than falling back.
+#   3. Turns on the real Popeye binary path.
+#
+# Prometheus and Alertmanager still need the `monitoring` profile.
+
+services:
+
+  popeye-scanner:
+    environment:
+      AOPS_MODE: "real"
+      POPEYE_MODE: "${POPEYE_MODE:-real}"
+    volumes:
+      - ${KUBECONFIG_PATH:-./.kubeconfig.internal}:/root/.kube/config:ro
+    networks: [aops-net, kind]
+
+  remediation-executor:
+    environment:
+      # Still dry by default even in real mode — flip deliberately.
+      DRY_RUN: "${DRY_RUN:-1}"
+    volumes:
+      - ${KUBECONFIG_PATH:-./.kubeconfig.internal}:/root/.kube/config:ro
+    networks: [aops-net, kind]
+
+  prometheus:
+    networks: [aops-net, kind]
+
+networks:
+  kind:
+    external: true

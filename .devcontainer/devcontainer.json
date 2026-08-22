@@ -12,6 +12,7 @@
     8002,
     8003,
     8004,
+    8005,
     11434
   ],
   "portsAttributes": {
@@ -33,9 +34,12 @@
     },
     "11434": {
       "label": "Ollama LLM"
+    },
+    "8005": {
+      "label": "Remediation Executor (dry-run)"
     }
   },
-  "postCreateCommand": "chmod +x run.sh services/prometheus-mock/alert.sh && ./run.sh up-no-ollama && echo '' && echo '========================================' && echo '  A.O.P.S. stack is LIVE in Codespace!' && echo '========================================' && echo '' && echo 'Ports:' && echo '  Mock Slack UI .... http://localhost:8003' && echo '  n8n Runner ...... http://localhost:5678' && echo '  Mock K8s API .... http://localhost:8001' && echo '  Popeye Scanner .. http://localhost:8004' && echo '  Dify-lite Agent . http://localhost:8002' && echo '' && echo 'Fire an alert:' && echo '  ./run.sh alert' && echo '  ./run.sh status' && echo ''",
+  "postCreateCommand": "chmod +x run.sh services/prometheus-mock/alert.sh && ./run.sh up-sandbox && echo '' && echo '========================================' && echo '  A.O.P.S. stack is LIVE in Codespace!' && echo '========================================' && echo '' && echo 'Ports:' && echo '  Mock Slack UI .... http://localhost:8003' && echo '  n8n Runner ...... http://localhost:5678' && echo '  Mock K8s API .... http://localhost:8001' && echo '  Popeye Scanner .. http://localhost:8004' && echo '  Dify-lite Agent . http://localhost:8002' && echo '' && echo 'Fire an alert:' && echo '  ./run.sh alert' && echo '  ./run.sh status' && echo ''",
   "customizations": {
     "vscode": {
       "extensions": [
