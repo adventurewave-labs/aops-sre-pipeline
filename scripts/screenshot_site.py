@@ -1,9 +1,15 @@
 """Screenshot the landing page from multiple viewports + scroll positions
 so we can visually verify it renders correctly before pushing to GitHub."""
 import asyncio
+import os
+from pathlib import Path
+
 from playwright.async_api import async_playwright
 
-OUT_DIR = "/home/z/my-project/download"
+# Repo-relative by default; override with AOPS_OUT_DIR.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUT_DIR = os.environ.get("AOPS_OUT_DIR", str(REPO_ROOT / "var" / "screenshots"))
+os.makedirs(OUT_DIR, exist_ok=True)
 
 async def shoot():
     async with async_playwright() as p:
