@@ -4,17 +4,21 @@
 Runs the full test matrix against a running A.O.P.S. stack and emits a
 structured JSON results file that the report generator consumes.
 
-Test matrix (10 tests):
+Test matrix (14 tests):
   T01  mock-k8s-api serves the 6 broken resources
   T02  mock-k8s-api enforces Bearer auth
   T03  popeye-scanner emits Popeye-shaped JSON with expected findings
   T04  dify-lite health endpoint reports backend selection
   T05  dify-lite chat completion produces a structured remediation
   T06  mock-slack stores the rendered Slack card
-  T07  n8n-runner workflow has 5 nodes in expected order
+  T07  n8n-runner workflow has 6 nodes in expected order
   T08  end-to-end alert flow completes in <2s
   T09  idempotency: firing twice produces two distinct runs
   T10  resilience: dify-lite survives a malformed message body
+  T11  scan reports its data provenance and never mislabels fixtures
+  T12  agent emits a structured plan using only allowlisted verbs
+  T13  executor never applies real changes from fixture-backed reports
+  T14  executor rejects plan steps outside its allowlist
 
 Each test records: name, status (pass/fail), duration_ms, evidence (compact
 JSON snapshot), notes.
@@ -33,6 +37,7 @@ BASE = {
     "dify":    "http://localhost:8002",
     "slack":   "http://localhost:8003",
     "n8n":     "http://localhost:5678",
+    "remediation": "http://localhost:8005",
 }
 TOKEN = "aops-demo-token"
 RESULTS: list[dict] = []
@@ -260,15 +265,17 @@ def t07_workflow_shape():
     node_names = [n["name"] for n in wf["nodes"]]
     expected_order = ["Alertmanager Webhook", "Popeye Scan",
                        "Dify Agent Reasoning", "Post to Slack",
-                       "Respond to Alertmanager"]
+                       "Execute Remediation", "Respond to Alertmanager"]
     edges = wf.get("connections", {})
     chain_ok = (
         edges.get("Alertmanager Webhook", {}).get("main", [[{}]])[0][0].get("node") == "Popeye Scan"
         and edges.get("Popeye Scan", {}).get("main", [[{}]])[0][0].get("node") == "Dify Agent Reasoning"
-        and edges.get("Dify Agent Reasoning", {}).get("main", [[{}]])[0][0].get("node") == "Post to Slack"
+        and {e["node"]
+             for lst in edges.get("Dify Agent Reasoning", {}).get("main", [])
+             for e in lst} == {"Post to Slack", "Execute Remediation"}
     )
     passed = (st == 200 and node_names == expected_order and chain_ok)
-    record("T07", "n8n-runner workflow has 5 nodes in expected order",
+    record("T07", "n8n-runner workflow has 6 nodes in expected order",
            "pass" if passed else "fail",
            int((time.time() - t0) * 1000),
            evidence={
@@ -342,6 +349,103 @@ def t10_dify_resilience():
                      "no_500s": no_500})
 
 
+def t11_scan_provenance():
+    """Every report must state where its data came from."""
+    t0 = time.time()
+    st, scan = http_post(f"{BASE['popeye']}/scan?namespace=payment-prod", None)
+    st_h, health = http_get(f"{BASE['popeye']}/healthz")
+    required = ("data_source", "engine", "aops_mode")
+    has_all = all(k in scan for k in required)
+    # In sandbox the data is fixtures and must say so — never "live-cluster".
+    labelled_honestly = (scan.get("data_source") == "fixtures"
+                         and scan.get("aops_mode") == "sandbox")
+    passed = (st == 200 and has_all and labelled_honestly
+              and health.get("data_source") == "fixtures")
+    record("T11", "scan reports its data provenance and never mislabels fixtures",
+           "pass" if passed else "fail",
+           int((time.time() - t0) * 1000),
+           evidence={"data_source": scan.get("data_source"),
+                     "engine": scan.get("engine"),
+                     "aops_mode": scan.get("aops_mode"),
+                     "healthz_data_source": health.get("data_source"),
+                     "has_all_provenance_fields": has_all})
+
+
+def t12_remediation_plan_is_structured_and_allowlisted():
+    """dify-lite emits an executable plan; the executor advertises its allowlist."""
+    t0 = time.time()
+    st, resp = http_post(f"{BASE['dify']}/v1/chat/completions", {
+        "messages": [{"role": "user", "content": json.dumps(_scan_report())}]})
+    plan = (resp or {}).get("_dify_lite_plan") or {}
+    steps = plan.get("steps", [])
+    st_h, health = http_get(f"{BASE['remediation']}/healthz")
+    allowed = set(health.get("allowed_verbs", []))
+    verbs = {s.get("verb") for s in steps}
+    passed = (st == 200 and bool(steps) and bool(allowed)
+              and verbs.issubset(allowed)
+              and all(s.get("id") and s.get("resource") for s in steps))
+    record("T12", "agent emits a structured plan using only allowlisted verbs",
+           "pass" if passed else "fail",
+           int((time.time() - t0) * 1000),
+           evidence={"step_count": len(steps), "verbs": sorted(v for v in verbs if v),
+                     "allowed_verbs": sorted(allowed),
+                     "generated_by": plan.get("generated_by")})
+
+
+def t13_executor_refuses_to_mutate_on_fixture_data():
+    """The D2 guarantee, end to end: no real changes from fixture-backed reports."""
+    t0 = time.time()
+    st, health = http_get(f"{BASE['remediation']}/healthz")
+    dry = health.get("dry_run")
+    st_r, result = http_post(f"{BASE['remediation']}/remediate", {})
+    status = (result or {}).get("status")
+    # Sandbox ships dry_run=1, so the run completes but mutates nothing. With
+    # dry_run=0 against fixtures the executor must refuse outright.
+    ok_dry = (dry is True and status == "completed"
+              and result.get("data_source") == "fixtures"
+              and result.get("steps_rejected", 0) == 0)
+    ok_refuse = (dry is False and status == "refused")
+    passed = st_r == 200 and (ok_dry or ok_refuse)
+    record("T13", "executor never applies real changes from fixture-backed reports",
+           "pass" if passed else "fail",
+           int((time.time() - t0) * 1000),
+           evidence={"dry_run": dry, "status": status,
+                     "data_source": (result or {}).get("data_source"),
+                     "steps_applied": (result or {}).get("steps_applied"),
+                     "steps_rejected": (result or {}).get("steps_rejected")})
+
+
+def t14_executor_rejects_steps_outside_its_allowlist():
+    """A hostile or malformed plan must be rejected, not executed."""
+    t0 = time.time()
+    hostile = {"plan": {"plan_version": 1, "namespace": "payment-prod",
+                        "generated_by": "uat/hostile", "steps": [
+        {"id": "wipe-kube-system", "verb": "delete-namespace",
+         "resource": "namespace/kube-system", "namespace": "kube-system"},
+        {"id": "cross-ns", "verb": "set-image", "resource": "deployment/x",
+         "namespace": "kube-system", "args": {"image": "evil:latest"}},
+        {"id": "shell-inject", "verb": "set-image",
+         "resource": "deployment/a;rm -rf /", "namespace": "payment-prod",
+         "args": {"image": "x"}},
+    ]}}
+    st, result = http_post(f"{BASE['remediation']}/remediate", hostile)
+    steps = (result or {}).get("steps", [])
+    none_applied = all(s.get("status") != "applied" for s in steps)
+    passed = (st == 200 and len(steps) == 3 and none_applied
+              and (result or {}).get("steps_applied", 1) == 0)
+    record("T14", "executor rejects plan steps outside its allowlist",
+           "pass" if passed else "fail",
+           int((time.time() - t0) * 1000),
+           evidence={"outcomes": [{s.get("step"): s.get("status")} for s in steps],
+                     "steps_applied": (result or {}).get("steps_applied"),
+                     "steps_rejected": (result or {}).get("steps_rejected")})
+
+
+def _scan_report() -> dict:
+    st, scan = http_post(f"{BASE['popeye']}/scan?namespace=payment-prod", None)
+    return scan
+
+
 def main():
     print("=== A.O.P.S. UAT test matrix ===\n")
     t01_mock_k8s_resources()
@@ -354,6 +458,10 @@ def main():
     t08_end_to_end_latency()
     t09_idempotency()
     t10_dify_resilience()
+    t11_scan_provenance()
+    t12_remediation_plan_is_structured_and_allowlisted()
+    t13_executor_refuses_to_mutate_on_fixture_data()
+    t14_executor_rejects_steps_outside_its_allowlist()
 
     passed = sum(1 for r in RESULTS if r["status"] == "pass")
     failed = len(RESULTS) - passed
@@ -366,7 +474,10 @@ def main():
         "failed": failed,
         "results": RESULTS,
     }
-    out_path = os.environ.get("AOPS_UAT_OUT", "/home/z/my-project/aops/var/uat-results.json")
+    out_path = os.environ.get(
+        "AOPS_UAT_OUT",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "var", "uat-results.json"))
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
