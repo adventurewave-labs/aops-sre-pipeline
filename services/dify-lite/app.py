@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import re
 import time
 import logging
 import urllib.request
@@ -124,6 +125,102 @@ def _parse_tool_call(text: str) -> dict | None:
     if m:
         return {"tool": "k8s_get", "path": m.group(1)}
     return None
+
+
+# ---------------------------------------------------------------------------
+# Structured remediation plan (D7)
+#
+# The Markdown runbook is for humans. The *plan* is what the remediation
+# executor actually runs: a declarative list of steps, each naming a verb and
+# a target, derived from the Popeye findings. The executor re-validates every
+# step against its own allowlist, so nothing here is trusted on faith --
+# neither this deterministic generator nor an LLM-authored plan.
+# ---------------------------------------------------------------------------
+
+# Popeye code -> plan step. Each entry is the ONLY thing that can put a step
+# in a plan, which keeps the plan surface auditable and finite.
+def _plan_steps_for(code: str, findings: list[dict], ns: str) -> list[dict]:
+    names = sorted({f.get("name", "") for f in findings})
+    if code == "POP-001":            # ImagePullBackOff
+        return [{
+            "id": "fix-payment-api-image",
+            "reason": f"POP-001 ImagePullBackOff on {', '.join(names) or 'payment-api'}",
+            "verb": "set-image",
+            "resource": "deployment/payment-api",
+            "namespace": ns,
+            "args": {"container": "payment-api", "image": "nginx:latest"},
+        }]
+    if code in ("POP-002", "MEM-001"):   # CrashLoopBackOff / OOMKilled
+        return [{
+            "id": "fix-payment-worker-memory",
+            "reason": f"{code} OOMKilled loop on {', '.join(names) or 'payment-worker'}",
+            "verb": "set-resources",
+            "resource": "deployment/payment-worker",
+            "namespace": ns,
+            "args": {"container": "payment-worker",
+                     "limits_memory": "256Mi", "requests_memory": "192Mi"},
+        }]
+    if code in ("PVC-001", "PVC-002"):   # Pending PVC / missing StorageClass
+        return [{
+            "id": "fix-missing-storageclass",
+            "reason": f"{code} PVC pending — StorageClass fast-ssd absent",
+            "verb": "create-storageclass",
+            "resource": "storageclass/fast-ssd",
+            "namespace": None,
+            "args": {"provisioner": "kubernetes.io/no-provisioner",
+                     "volume_binding_mode": "WaitForFirstConsumer"},
+        }]
+    if code == "ING-001":            # dangling ingress
+        return [{
+            "id": "fix-dangling-ingress",
+            "reason": "ING-001 Ingress backend Service does not exist",
+            "verb": "set-ingress-backend",
+            "resource": "ingress/payment-ingress",
+            "namespace": ns,
+            "args": {"service": "payment-api"},
+        }]
+    if code == "NO-002":             # node disk pressure — inspect only
+        return [{
+            "id": "inspect-disk-pressure",
+            "reason": f"NO-002 DiskPressure on {', '.join(names) or 'node'}",
+            "verb": "inspect-nodes",
+            "resource": "nodes",
+            "namespace": None,
+            "args": {},
+        }]
+    return []
+
+
+def build_plan(popeye_report: dict, backend: str = "stub") -> dict:
+    """Derive a structured, executable plan from Popeye findings."""
+    ns = popeye_report.get("namespace", "default")
+    issues = popeye_report.get("issues", {}).get(ns, [])
+    by_code: dict[str, list[dict]] = {}
+    for i in issues:
+        by_code.setdefault(i.get("code", "POP-000"), []).append(i)
+
+    steps: list[dict] = []
+    seen: set[str] = set()
+    for code in sorted(by_code):
+        for step in _plan_steps_for(code, by_code[code], ns):
+            if step["id"] in seen:
+                continue
+            seen.add(step["id"])
+            steps.append(step)
+
+    return {
+        "plan_version": 1,
+        "namespace": ns,
+        "generated_by": f"dify-lite/{backend}",
+        "source": {
+            "data_source": popeye_report.get("data_source", "unknown"),
+            "engine": popeye_report.get("engine", "unknown"),
+            "score": popeye_report.get("score"),
+            "grade": popeye_report.get("grade"),
+            "codes": sorted(by_code),
+        },
+        "steps": steps,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +413,18 @@ def stub_remediate(popeye_report: dict) -> str:
 # ---------------------------------------------------------------------------
 # Agentic loop
 # ---------------------------------------------------------------------------
+def _extract_report(user_message: str) -> dict:
+    """Pull the Popeye JSON out of a chat message (raw or embedded)."""
+    try:
+        return json.loads(user_message)
+    except Exception:
+        m = re.search(r"\{[\s\S]*\}", user_message)
+        try:
+            return json.loads(m.group(0)) if m else {}
+        except Exception:
+            return {}
+
+
 def _run_agent_loop(user_message: str, use_ollama: bool) -> tuple[str, dict]:
     """Two-round agent loop. Returns (final_text, trace_metadata)."""
     trace = {
@@ -332,14 +441,7 @@ def _run_agent_loop(user_message: str, use_ollama: bool) -> tuple[str, dict]:
             "note": "deterministic stub backend; no LLM call made",
         })
         # The user_message is expected to contain the Popeye JSON
-        try:
-            report = json.loads(user_message)
-        except Exception:
-            # If user_message isn't pure JSON, try to extract JSON blob
-            import re
-            m = re.search(r"\{[\s\S]*\}", user_message)
-            report = json.loads(m.group(0)) if m else {}
-        return stub_remediate(report), trace
+        return stub_remediate(_extract_report(user_message)), trace
 
     # Ollama backend — actual 2-round agent loop
     messages = [
@@ -495,6 +597,7 @@ class DifyHandler(BaseHTTPRequestHandler):
             t0 = time.time()
             final_text, trace = _run_agent_loop(user_msg,
                                                  use_ollama=(backend == "ollama"))
+            plan = build_plan(_extract_report(user_msg), backend)
             elapsed = time.time() - t0
         except Exception as e:
             log.exception("agent loop failed")
@@ -521,6 +624,10 @@ class DifyHandler(BaseHTTPRequestHandler):
             },
             "_dify_lite_trace": trace,
             "_dify_lite_duration_s": round(elapsed, 3),
+            # The executable half of the answer. The Markdown above narrates;
+            # this is what the remediation executor runs (after re-validating
+            # every step against its own allowlist).
+            "_dify_lite_plan": plan,
         })
 
     def do_HEAD(self):
