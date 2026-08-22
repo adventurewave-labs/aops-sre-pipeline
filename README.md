@@ -1,255 +1,252 @@
 # A.O.P.S. — Automated Off-the-shelf Pipeline SRE
 
-[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fadventurewave-labs%2Faops-sre-pipeline)
+[![CI](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-7c5cff.svg)](LICENSE)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/adventurewave-labs/aops-sre-pipeline)
-[![UAT: 10/10](https://img.shields.io/badge/UAT-10%2F10-4ade80.svg)](#-test-it)
-[![Latency: 23ms](https://img.shields.io/badge/E2E-23ms-00d4ff.svg)](#-test-it)
+[![UAT: 14/14](https://img.shields.io/badge/UAT-14%2F14-4ade80.svg)](#-test-it)
+[![Sandbox E2E: ~55ms](https://img.shields.io/badge/sandbox%20E2E-~55ms-00d4ff.svg)](#-test-it)
 
-> An open-source, alert-driven autonomous SRE pipeline: **Real** Prometheus fires → **real** n8n catches → **real** Popeye scans → agentic reasoning via **real** Ollama LLM → **real** kubectl remediation → Slack notification.
+> An alert-driven SRE pipeline: Prometheus fires → n8n catches → Popeye scans → an agent reasons over the findings → a validated plan is applied by kubectl → Slack gets the card.
 
-🌐 **Live demo & landing page:** <https://aops-sre-pipeline.vercel.app> *(deploy this repo to Vercel — see `site/DEPLOY.md`)*
+An open-source, self-hosted alternative to the Robusta + K8sGPT stack, where every component is swappable and nothing about the pipeline's provenance is hidden from you.
+
+🌐 **Landing page:** <https://aops-sre-pipeline.vercel.app>
 
 ![A.O.P.S. pipeline demo](site/aops-demo.gif)
 
 ```
-  Real Prometheus + Alertmanager ──webhook──> Real n8n
-                                            │
-                                            ▼ HTTP POST /scan
-                                         Popeye (real binary or built-in fallback)
-                                            │
-                                            ▼ Popeye JSON
-                                         dify-lite (agentic reasoning)
-                                            │
-                                            ▼ OpenAI-compatible API
-                                         Real Ollama (qwen2.5:0.5b or llama3.1:8b)
-                                            │
-                                            ▼ remediation Markdown
-                                         Slack receiver (real webhook or local mock)
-                                            │
-                                            ▼ POST /remediate
-                                         Remediation executor (real kubectl fixes)
+   Prometheus + Alertmanager ──webhook──> n8n
+                                          │
+                                          ▼ POST /scan
+                                   Popeye scanner ── reads ──> cluster state
+                                          │                    (fixtures OR live)
+                                          ▼ Popeye-shaped JSON
+                                   dify-lite ── agentic reasoning ──> Ollama
+                                          │
+                                          ├──> Markdown runbook ──> Slack card
+                                          │
+                                          ▼ structured plan
+                                   Remediation executor
+                                          │ every step re-validated
+                                          ▼ against an allowlist
+                                       kubectl
 ```
 
-A.O.P.S. mirrors the popular Robusta + K8sGPT stack but swaps every component for an open-source, off-the-shelf alternative that you can run fully self-hosted on your own hardware. The pipeline operates in **two modes**:
+---
 
-- **Real mode** (default): Uses a real Kubernetes cluster (kind/minikube), real Popeye binary, real Ollama LLM, real n8n, real Prometheus + Alertmanager, and real kubectl remediation.
-- **Sandbox mode**: Self-contained with a mock K8s API and lightweight Python workflow runner — zero external dependencies, runs anywhere Python is available.
+## The two modes, and how to tell them apart
 
-## ✨ What's in the box
+This is the most important thing to understand about A.O.P.S., so it is the first thing documented.
 
-| Component | Real Mode | Sandbox Mode | Replaces |
-|---|---|---|---|
-| **Kubernetes** | Real kind/minikube cluster with 6 deliberately broken resources | mock-k8s-api (Python HTTP server) | your real kube-apiserver |
-| **Popeye scanner** | Real `popeye` Go binary (falls back to built-in Python analyzers) | Built-in 14-analyzer Python engine | K8sGPT |
-| **dify-lite** | Agentic reasoning with real Ollama LLM backend | Deterministic stub (instant, no LLM needed) | Dify.ai |
-| **Ollama** | Real `ollama/ollama` container serving `qwen2.5:0.5b` (or `llama3.1:8b`) | Not started | any OpenAI-compat API |
-| **n8n** | Real `n8nio/n8n:latest` with auto-imported workflow | Python n8n-runner (loads same JSON) | — |
-| **Prometheus** | Real `prom/prometheus` + `prom/alertmanager` containers | `alert.sh` (single curl) | — |
-| **Slack** | Real incoming-webhook (set `REAL_SLACK_WEBHOOK_URL`) | Local HTML card renderer | real Slack incoming-webhook |
-| **Remediation executor** | Real `kubectl` commands against live cluster | Dry-run mode | manual SRE intervention |
+| | Sandbox mode | Real mode |
+|---|---|---|
+| Cluster state from | bundled fixtures (`mock-k8s-api`) | a live cluster via kubeconfig |
+| Every report labelled | `"data_source": "fixtures"` | `"data_source": "live-cluster"` |
+| Needs | Python 3.11 | Docker, kind, kubectl |
+| Remediation | dry-run only | real `kubectl`, still dry by default |
+| Verified by | CI on every push | `./scripts/verify-real-mode.sh` |
 
-The demo cluster ships with **six broken resources**:
+**The scanner never degrades from one to the other.** If `AOPS_MODE=real` and the cluster is unreachable, `/scan` returns **503** with the reason. It does not fall back to fixtures and label them as real — a report that might be acted on has to be honest about what it describes. The remediation executor enforces the same rule from the other side: it refuses to apply real changes on the strength of a report whose `data_source` is not `live-cluster`.
 
-- 2 Nodes (one in `DiskPressure` at 92% disk usage)
-- 2 broken Deployments (`payment-api` in `ImagePullBackOff`, `payment-worker` in `CrashLoopBackOff` from `OOMKilled`)
-- 1 dangling Ingress (routes to a Service that doesn't exist)
-- 1 Pending PVC (`StorageClass fast-ssd` was deleted)
+Every scan says which it is:
 
-When Popeye scans that state, it emits findings with codes `NO-002`, `DPL-000`, `DPL-001`, `POP-001`, `POP-002`, `MEM-001`, `ING-001`, `PVC-001`, `PVC-002`. The dify-lite agent (backed by Ollama) reasons through those findings and produces a Markdown remediation runbook with root-cause hypothesis, numbered kubectl commands, blast-radius notes, and suggested follow-up alerts. The remediation executor then applies the fixes for real and re-scans to verify improvement.
+```console
+$ curl -s -XPOST 'localhost:8004/scan?namespace=payment-prod' | jq '{aops_mode, data_source, engine, score, grade}'
+{
+  "aops_mode": "sandbox",
+  "data_source": "fixtures",
+  "engine": "builtin-analyzers",
+  "score": 0,
+  "grade": "F"
+}
+```
+
+The Slack card carries the same badge, so nobody reads a runbook without knowing where its facts came from.
+
+---
 
 ## 🚀 Quick start
 
-### Option A: Full real stack (Docker + kind cluster)
+### Sandbox — no Docker, no cluster, ~10 seconds
 
 ```bash
 git clone https://github.com/adventurewave-labs/aops-sre-pipeline.git
 cd aops-sre-pipeline
 
-# 1. Create a real Kubernetes cluster with broken resources
+./run.sh up-sandbox          # all services as plain Python processes
+./run.sh alert               # fire the PaymentAPIHighErrorRate alert
+./run.sh status              # services + health probes
+open http://localhost:8003   # the rendered Slack card
+
+./run.sh remediate           # plan-driven remediation (dry-run)
+./run.sh stop
+```
+
+End-to-end latency through the full six-node workflow: **~55 ms**. This is what CI runs on every push, and what the UAT badge measures.
+
+### GitHub Codespaces — zero setup
+
+Click the badge above. The devcontainer installs Python 3.11 and Docker-in-Docker, starts the sandbox stack, and forwards every port.
+
+### Real mode — Docker + a kind cluster
+
+```bash
+# 1. Create a real cluster with the broken resources, kube-state-metrics and
+#    the payment-api metrics exporter. Ends with a wiring self-check.
 ./scripts/setup-kind-cluster.sh up
 
-# 2. Export kubeconfig for Docker volume mount
-export KUBECONFIG_PATH=$(pwd)/.kubeconfig
+# 2. Use the INTERNAL kubeconfig — see the note below, it matters
+export KUBECONFIG_PATH=$(pwd)/.kubeconfig.internal
 
-# 3. Start the full stack (real n8n, real Ollama, real Popeye)
-docker compose up -d
+# 3. Start the stack against the cluster
+docker compose -f docker-compose.yml -f docker-compose.real.yml \
+               --profile monitoring up -d
 
-# 4. Fire a test alert (or wait for real Prometheus to trigger)
-./run.sh alert
-
-# 5. Check the Slack card
-open http://localhost:8003
-
-# 6. Trigger automated remediation
-curl -X POST http://localhost:8005/remediate
-
-# 7. Check before/after improvement
-curl http://localhost:8005/status
+# 4. Verify every link before believing any of it
+./scripts/verify-real-mode.sh
 ```
 
-End-to-end latency with real Ollama (`qwen2.5:0.5b`) on CPU: **1.5–4 s**. Swap `OLLAMA_MODEL=llama3.1:8b` for higher-quality reasoning on a GPU host.
+> **The kubeconfig gotcha.** kind writes a kubeconfig pointing at `https://127.0.0.1:<random-port>`. Mounted into a container, `127.0.0.1` is *that container*, so every kubectl call is refused. `setup-kind-cluster.sh` writes two files — `.kubeconfig` (host-facing) and `.kubeconfig.internal` (`https://aops-demo-control-plane:6443`) — and `docker-compose.real.yml` joins the containers to the `kind` network so the internal one resolves. Mount the internal one.
 
-### Option B: Sandbox mode (no Docker, no cluster)
+---
 
-```bash
-git clone https://github.com/adventurewave-labs/aops-sre-pipeline.git
-cd aops-sre-pipeline
+## ✨ What's in the box
 
-./run.sh up-no-ollama       # starts all services as plain Python processes
-./run.sh alert              # fires the PaymentAPIHighErrorRate alert
-./run.sh status             # shows running services + health probes
-open http://localhost:8003  # view the rendered Slack card (auto-refreshes)
+| Component | Sandbox | Real | Replaces |
+|---|---|---|---|
+| **Cluster state** | `mock-k8s-api` fixtures — 6 deliberately broken resources | kind/minikube via kubectl | your kube-apiserver |
+| **Popeye scanner** | 14 built-in Python analyzers | upstream `popeye` binary, falling back to the same 14 analyzers *against the same cluster* | K8sGPT |
+| **dify-lite** | deterministic rule-based remediator | 2-round agent loop against Ollama | Dify.ai (~8 containers) |
+| **Ollama** | not started | `ollama/ollama` serving `qwen2.5:0.5b` or `llama3.1:8b` | any OpenAI-compatible API |
+| **n8n** | Python workflow runner (same JSON) | `n8nio/n8n:latest`, workflow imported and activated by the `n8n-import` step | — |
+| **Prometheus** | `alert.sh` (one curl) | `prom/prometheus` + `alertmanager`, scraping kube-state-metrics and the payment-api exporter | — |
+| **Slack** | local HTML card renderer | real incoming webhook via `REAL_SLACK_WEBHOOK_URL` | Slack |
+| **Remediation** | dry-run | real kubectl, allowlist-gated | manual SRE intervention |
 
-./run.sh stop               # clean shutdown
+The demo cluster ships **six broken resources**: 2 Nodes (one in `DiskPressure`), `payment-api` in `ImagePullBackOff`, `payment-worker` in `CrashLoopBackOff` from `OOMKilled`, a dangling Ingress, and a Pending PVC whose StorageClass was deleted. Popeye emits `NO-002`, `DPL-000/001`, `POP-001/002`, `MEM-001`, `ING-001`, `PVC-001/002`.
+
+---
+
+## 🔒 How remediation is kept safe
+
+The agent does not get to run arbitrary commands. There are three gates, and each has tests:
+
+1. **The plan is structured, not prose.** dify-lite returns a Markdown runbook *and* a machine-readable plan (`_dify_lite_plan`): a list of steps, each naming a `verb`, a `resource` and typed `args`. The runbook is for humans; the plan is what executes.
+2. **The executor re-validates every step.** `ALLOWED_VERBS` in the remediation executor maps five verbs to five handlers — `set-image`, `set-resources`, `create-storageclass`, `set-ingress-backend`, `inspect-nodes`. An unknown verb, a resource of the wrong kind, a name that fails the pattern, or a step targeting another namespace is **rejected and recorded, never executed**. The executor's own `/healthz` publishes the allowlist.
+3. **Provenance gates mutation.** Even with `DRY_RUN=0`, the executor refuses to apply anything when the scan it is acting on is not `data_source: live-cluster`.
+
+`DRY_RUN=1` is the shipped default. Flip it deliberately.
+
+```console
+$ curl -s -XPOST localhost:8005/remediate -d '{"plan":{"namespace":"payment-prod","steps":[
+    {"id":"evil","verb":"delete-namespace","resource":"namespace/kube-system"}]}}' | jq '.steps'
+[
+  {
+    "step": "evil",
+    "status": "rejected",
+    "detail": "verb 'delete-namespace' is not in the allowlist (['create-storageclass', 'inspect-nodes', 'set-image', 'set-ingress-backend', 'set-resources'])"
+  }
+]
 ```
 
-End-to-end latency with the deterministic stub backend: **~23 ms**.
-
-### Option C: Docker sandbox (no cluster needed)
-
-```bash
-cd aops-sre-pipeline
-AOPS_MODE=sandbox docker compose --profile sandbox up -d
-```
-
-### GitHub Codespaces (zero-setup, everything pre-installed)
-
-Click the badge above &mdash; or go to [codespaces.new/adventurewave-labs/aops-sre-pipeline](https://codespaces.new/adventurewave-labs/aops-sre-pipeline).
-
-The Codespace will automatically:
-
-1. **Install everything** &mdash; Python 3.11, Docker-in-Docker, and all port forwardings
-2. **Start the full A.O.P.S. stack** in sandbox mode
-3. **Print a ready-to-use summary** with all service URLs
-
-Once the Codespace is ready:
-
-```bash
-# Fire the demo alert
-./run.sh alert
-
-# View the Slack card in the built-in browser (port 8003 auto-forwards)
-
-# Run the full UAT suite
-python3 scripts/smoke_test.py
-python3 scripts/run_uat.py
-
-# For real LLM mode (Ollama + qwen2.5:0.5b):
-docker compose up -d
-```
+---
 
 ## 📡 Service endpoints
 
 | Service | Port | Path | Purpose |
 |---|---|---|---|
-| mock-k8s-api | 8001 | `/api/v1/*`, `/apis/apps/v1/*`, `/apis/networking.k8s.io/v1/*` | Mock K8s API (sandbox only) |
-| popeye-scanner | 8004 | `POST /scan?namespace=payment-prod` | Popeye scan (real binary or built-in) |
-| dify-lite | 8002 | `POST /v1/chat/completions`, `GET /healthz` | Agentic reasoning (Ollama or stub) |
-| slack-receiver | 8003 | `POST /webhook/slack`, `GET /` | Slack card receiver |
-| n8n | 5678 | Webhook + visual workflow editor | Real n8n (default) |
-| n8n-runner | 5678 | `POST /webhook/aops-alert`, `GET /workflow`, `GET /runs` | Python workflow runner (sandbox) |
-| prometheus | 9090 | Web UI, query API | Real Prometheus (monitoring profile) |
-| alertmanager | 9093 | Web UI, webhook receiver | Real Alertmanager (monitoring profile) |
-| ollama | 11434 | `/api/chat`, `/v1/chat/completions` | Real LLM runtime |
-| remediation-executor | 8005 | `POST /remediate`, `GET /status` | Applies real kubectl fixes |
+| mock-k8s-api | 8001 | `/api/v1/*`, `/apis/apps/v1/*`, `/apis/networking.k8s.io/v1/*` | fixture kube-apiserver (sandbox only) |
+| dify-lite | 8002 | `POST /v1/chat/completions`, `GET /healthz` | reasoning + plan generation |
+| slack-receiver | 8003 | `POST /webhook/slack`, `GET /` | Slack card, with provenance badge |
+| popeye-scanner | 8004 | `POST /scan?namespace=…`, `GET /healthz` | scan; **503** if real mode can't reach the cluster |
+| remediation-executor | 8005 | `POST /remediate`, `GET /status`, `GET /healthz` | allowlist-gated plan execution |
+| n8n / n8n-runner | 5678 | `POST /webhook/aops-alert`, `GET /workflow`, `GET /runs` | workflow engine |
+| prometheus | 9090 | UI, query API | `--profile monitoring` |
+| alertmanager | 9093 | UI, webhook receiver | `--profile monitoring` |
+| ollama | 11434 | `/api/chat`, `/v1/chat/completions` | LLM runtime |
+
+---
 
 ## 🧪 Test it
 
 ```bash
-# Sandbox tests
-./run.sh up-no-ollama
-python3 scripts/smoke_test.py    # component-level smoke tests
-python3 scripts/run_uat.py      # 10-test acceptance matrix
-./run.sh alert                   # fire a single alert manually
-./run.sh demo                    # record an asciinema demo
+# Unit — parser, allowlist, plan generation. No services needed.
+python3 tests/test_popeye_parser.py
+python3 tests/test_remediation_allowlist.py
 
-# Real stack tests
+# Sandbox integration
+./run.sh up-sandbox
+python3 scripts/smoke_test.py     # component smoke test
+python3 scripts/run_uat.py        # 14-test acceptance matrix
+./run.sh demo                     # scripted end-to-end demo
+
+# Real mode — checks each link and names the broken one
 ./scripts/setup-kind-cluster.sh up
-export KUBECONFIG_PATH=$(pwd)/.kubeconfig
-docker compose up -d
-docker compose exec n8n-runner python3 scripts/run_uat.py
+./scripts/verify-real-mode.sh
 ```
 
-UAT matrix covers: 6 broken resources, Bearer auth, Popeye findings, agent output structure, Slack card persistence, workflow shape, end-to-end latency, idempotency, malformed-input resilience. **10/10 pass** on the sandbox stub backend.
+The UAT matrix covers the six broken resources, Bearer auth, Popeye findings, agent output structure, Slack card persistence, workflow shape, end-to-end latency, idempotency, malformed-input resilience, **scan provenance labelling**, **plan/allowlist agreement**, **refusal to mutate on fixture data**, and **rejection of out-of-allowlist plan steps**.
+
+CI runs all of it on every push, builds all six images, validates both compose files, and **fails if the README's UAT badge disagrees with the suite's actual result**. The badge cannot drift from reality again.
+
+---
 
 ## 📁 Repository layout
 
 ```
 aops-sre-pipeline/
-├── docker-compose.yml              # real stack (n8n, Ollama, Popeye, Prometheus)
-├── run.sh                          # sandbox orchestrator (start/stop/alert/demo)
-├── k8s-manifests/                  # real K8s resources for kind cluster
-│   ├── 00-namespace.yaml
-│   ├── 01-broken-deployments.yaml
-│   ├── 02-dangling-ingress.yaml
-│   ├── 03-missing-storageclass-pvc.yaml
-│   └── 04-service.yaml
+├── .github/workflows/ci.yml         # static + unit + sandbox + image + compose gates
+├── docker-compose.yml               # sandbox-safe base (no cluster required)
+├── docker-compose.real.yml          # real-mode overlay: kind network, live provenance
+├── run.sh                           # sandbox orchestrator
+├── k8s-manifests/                   # the 6 deliberately broken resources
+├── k8s-observability/
+│   ├── kube-state-metrics.yaml      # the series every alert rule needs
+│   └── payment-api-metrics.yaml     # RED metrics so the 5xx rule can fire
 ├── services/
-│   ├── mock-k8s-api/
-│   │   ├── app.py                  # Python HTTP mock kube-apiserver
-│   │   ├── cluster_data.py         # source-of-truth: 6 broken resources
-│   │   └── Dockerfile
-│   ├── popeye-scanner/
-│   │   ├── app.py                  # HTTP wrapper
-│   │   ├── scanner.py              # 14 built-in analyzers + real Popeye binary integration
-│   │   └── Dockerfile
-│   ├── dify-lite/
-│   │   ├── app.py                  # Agentic reasoning (Ollama LLM or deterministic stub)
-│   │   └── Dockerfile
-│   ├── mock-slack/
-│   │   ├── app.py                  # Slack receiver (local HTML or real webhook)
-│   │   ├── templates/slack_card.html
-│   │   └── Dockerfile
-│   ├── n8n-runner/
-│   │   ├── app.py                  # Python workflow executor (sandbox fallback)
-│   │   ├── aops-workflow.json      # n8n-importable workflow definition
-│   │   └── Dockerfile
-│   ├── remediation-executor/
-│   │   ├── app.py                  # Real kubectl remediation + before/after re-scan
-│   │   └── Dockerfile
-│   └── prometheus-alertmanager/
-│       ├── config/
-│       │   ├── prometheus.yml      # Prometheus scrape config
-│       │   ├── alert_rules.yml     # PaymentAPIHighErrorRate rule
-│       │   └── alertmanager.yml    # Webhook receiver → n8n
-│       └── alert.sh                # Standalone alert trigger (sandbox)
+│   ├── mock-k8s-api/                # fixture kube-apiserver + cluster_data.py
+│   ├── popeye-scanner/              # KubeClient (fixtures|kubectl) + 14 analyzers
+│   │                                #   + real-Popeye JSON parser
+│   ├── dify-lite/                   # agent loop + structured plan generation
+│   ├── mock-slack/                  # card renderer with provenance badge
+│   ├── n8n-runner/                  # Python workflow executor + aops-workflow.json
+│   ├── remediation-executor/        # allowlist-gated plan execution
+│   └── prometheus-alertmanager/config/
 ├── scripts/
-│   ├── setup-kind-cluster.sh       # Create real K8s cluster with broken resources
-│   ├── smoke_test.py              # component smoke test
-│   ├── run_uat.py                 # 10-test acceptance matrix
-│   ├── demo_script.sh             # asciinema demo script
-│   ├── md_to_pdf.py               # MD→PDF report converter
-│   ├── run_uat.py                 # acceptance test matrix
-│   └── screenshot_site.py         # landing page screenshot
-└── site/
-    ├── index.html                 # landing page (deploy to Vercel)
-    └── DEPLOY.md                  # Vercel deployment guide
+│   ├── setup-kind-cluster.sh        # cluster + observability + wiring self-check
+│   ├── verify-real-mode.sh          # end-to-end real-mode verification
+│   ├── smoke_test.py                # component smoke test
+│   ├── run_uat.py                   # 14-test acceptance matrix
+│   └── demo_script.sh               # scripted demo
+├── tests/
+│   ├── test_popeye_parser.py        # real-Popeye schema, fixtures from upstream
+│   ├── test_remediation_allowlist.py
+│   └── fixtures/
+└── site/                            # Vercel landing page
 ```
 
-## 🔌 Wiring it to your real stack
-
-1. **Real Kubernetes cluster.** The default real mode talks directly to your cluster via kubeconfig. Run `./scripts/setup-kind-cluster.sh up` to create a local kind cluster with pre-broken resources, or point `KUBECONFIG_PATH` at your own cluster's kubeconfig.
-2. **Real Prometheus + Alertmanager.** Enable the monitoring profile: `docker compose --profile monitoring up -d`. Configure `alertmanager.yml` to fire webhooks to n8n. The mock `alert.sh` shows the canonical Alertmanager payload shape.
-3. **Real Slack.** Set `REAL_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...` when starting the stack. The slack-receiver will forward all alerts to your real Slack channel.
-4. **Real n8n.** The default Docker mode uses `n8nio/n8n:latest` and auto-imports `aops-workflow.json`. Open `http://localhost:5678` to visually edit the workflow.
-5. **Real Popeye.** In real mode the scanner attempts the `popeye` Go binary first. Install it via `go install github.com/derailed/popeye@latest` or `brew install popeye`. If unavailable, it falls back to the built-in Python analyzers.
-6. **Bigger LLM.** Set `OLLAMA_MODEL=llama3.1:8b` for higher-quality reasoning on a GPU host.
+---
 
 ## 🧠 Architecture decisions
 
-- **Why Popeye over K8sGPT?** Popeye is rules-based — its findings are deterministic and never hallucinated. The agentic reasoning happens in dify-lite instead, with the LLM grounded in Popeye's structured JSON.
-- **Why a custom dify-lite over real Dify.ai?** Dify.ai ships ~8 containers (api/web/worker/sandbox + Postgres + Weaviate + Redis + nginx). dify-lite is a single Python process that implements the same OpenAI-compatible chat-completions API surface with a 2-round tool-calling loop. It defaults to real Ollama for LLM reasoning. When you want the full RAG experience, swap to real Dify — the workflow JSON only needs the URL changed.
-- **Why Ollama over a hosted API?** Self-hosted, no per-token cost, no data egress. dify-lite's `auto` backend detects reachability and falls back to the deterministic stub when Ollama is down — the pipeline never breaks.
-- **Why real n8n in Docker mode?** The sandbox Python runner exists for zero-dependency demos. In production, the official `n8nio/n8n:latest` image gives you a visual workflow editor, retry logic, and hundreds of integrations. The same `aops-workflow.json` is n8n-importable — no code changes needed.
-- **Why kind for the demo cluster?** kind creates real K8s clusters in Docker. This means Popeye scans real cluster state, the remediation executor runs real kubectl commands, and before/after scores reflect actual changes. No simulation.
+- **Why Popeye over K8sGPT?** Popeye is rules-based: its findings are deterministic and cannot be hallucinated. The reasoning happens downstream in dify-lite, grounded in Popeye's structured JSON. **This is the whole design.** The LLM interprets facts it did not invent, and the plan it produces is re-validated against an allowlist before anything runs. That is what makes an autonomous remediation loop defensible.
+- **Why a custom dify-lite over Dify.ai?** Dify ships ~8 containers (api/web/worker/sandbox + Postgres + Weaviate + Redis + nginx). dify-lite is one Python process implementing the same OpenAI-compatible surface with a 2-round tool-calling loop. Point the workflow at real Dify by changing one URL.
+- **Why Ollama over a hosted API?** Self-hosted, no per-token cost, no data egress.
+- **Why two kubeconfigs?** Because one of them does not work from inside a container, and quietly getting this wrong is the most common way a "real" kind demo turns out never to have touched a cluster.
+- **Why does the scanner 503 instead of falling back?** Because the alternative — serving fixtures labelled as a real cluster — produces a confident, plausible, entirely fictional incident report. A loud failure is strictly better than a quiet lie.
+
+---
 
 ## ⚠️ Limitations
 
-- The sandbox mock K8s API is **read-only**. In real mode, the remediation executor applies real kubectl commands with a `DRY_RUN` option for safety.
-- The sandbox stub backend produces deterministic (rule-based) remediation text. For real LLM reasoning, run with Docker + Ollama.
-- Popeye's built-in Python analyzers cover 14 codes (Node, Deployment, Pod, Ingress, Service, PVC). When the real Popeye binary is available, it provides 100+ analyzers.
-- The remediation executor applies a fixed set of fixes matching the demo's 6 broken resources. Extending it to handle arbitrary Popeye findings is on the roadmap.
+Stated plainly, because the point of the provenance work above is that you can trust what this file says.
+
+- **Real mode is implemented and self-checking, but the end-to-end run is verified by `scripts/verify-real-mode.sh` on your machine, not by CI.** CI has no cluster: it verifies the sandbox pipeline, all six image builds, and both compose configurations. If you are evaluating this repo, run that script — it checks each link and names the one that breaks.
+- The built-in analyzers cover 14 codes (Node, Deployment, Pod, Ingress, Service, PVC). The real Popeye binary provides 100+.
+- The remediation allowlist has five verbs, matching the demo's six broken resources. Extending it means adding a handler here — deliberately, not by widening a wildcard.
+- `inspect-nodes` reports DiskPressure rather than clearing it; freeing disk on a node needs host access A.O.P.S. does not have.
+- The `payment-api` metrics exporter is a stand-in: the real `payment-api` Deployment is deliberately in `ImagePullBackOff`, so it cannot serve `/metrics`. Prometheus scrapes real counters from the exporter and evaluates the real rule — but those counters are generated, not organic traffic.
+- `PaymentAPIHighErrorRate` has `for: 5m`. It takes five to six minutes after startup to fire.
 
 ## 📜 License
 
@@ -257,12 +254,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 🙏 Acknowledgements
 
-- [Popeye](https://github.com/derailed/popeye) — the canonical Kubernetes sanitizer (real binary used in production mode).
-- [Ollama](https://github.com/ollama/ollama) — the LLM runtime powering agentic reasoning.
-- [n8n](https://github.com/n8n-io/n8n) — the workflow engine (real `n8nio/n8n:latest` in Docker mode).
-- [Prometheus](https://github.com/prometheus/prometheus) + [Alertmanager](https://github.com/prometheus/alertmanager) — real alerting infrastructure.
-- [kind](https://github.com/kubernetes-sigs/kind) — real Kubernetes clusters in Docker.
-- [Dify.ai](https://github.com/langgenius/dify) — the agentic platform whose API surface dify-lite mimics.
+[Popeye](https://github.com/derailed/popeye) · [Ollama](https://github.com/ollama/ollama) · [n8n](https://github.com/n8n-io/n8n) · [Prometheus](https://github.com/prometheus/prometheus) + [Alertmanager](https://github.com/prometheus/alertmanager) · [kind](https://github.com/kubernetes-sigs/kind) · [kube-state-metrics](https://github.com/kubernetes/kube-state-metrics) · [Dify.ai](https://github.com/langgenius/dify)
 
 ---
 
