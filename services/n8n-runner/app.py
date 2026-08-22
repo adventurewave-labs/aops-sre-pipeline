@@ -98,6 +98,20 @@ def _substitute_url(url: str) -> str:
     return url
 
 
+def _agent(node_outputs: dict | None, upstream_data: dict) -> dict:
+    """The Dify response, whichever sibling of the fan-out ran most recently.
+
+    Nodes are executed in topological order and each one is handed the
+    *previous* node's output. That is fine for a chain, but the workflow
+    fans out from 'Dify Agent Reasoning' to both the executor and Slack,
+    so whichever of those runs second would otherwise receive its sibling's
+    response and quietly publish an empty runbook.
+    """
+    if node_outputs and isinstance(node_outputs.get("Dify Agent Reasoning"), dict):
+        return node_outputs["Dify Agent Reasoning"]
+    return upstream_data if isinstance(upstream_data, dict) else {}
+
+
 def _scan(node_outputs: dict | None, upstream_data: dict) -> dict:
     """The Popeye Scan node's output, wherever we can reach it from."""
     if node_outputs and isinstance(node_outputs.get("Popeye Scan"), dict):
@@ -150,16 +164,16 @@ def _http_request(node: dict, upstream_data: dict, run_log: list,
             # Provenance travels with the card — see D2 in the audit.
             "data_source": _scan(node_outputs, upstream_data).get("data_source", "unknown"),
             "engine": _scan(node_outputs, upstream_data).get("engine", "unknown"),
-            "text": (d.get("choices", [{}])[0].get("message", {}).get("content", "")
-                     if isinstance(d, dict) else str(d)),
-            "trace": d.get("_dify_lite_trace", {}) if isinstance(d, dict) else {},
-            "duration_s": d.get("_dify_lite_duration_s") if isinstance(d, dict) else None,
+            "text": (_agent(node_outputs, d).get("choices", [{}])[0]
+                     .get("message", {}).get("content", "")),
+            "trace": _agent(node_outputs, d).get("_dify_lite_trace", {}),
+            "duration_s": _agent(node_outputs, d).get("_dify_lite_duration_s"),
         },
         # The agent's plan is what the executor runs; it re-validates every
         # step against its own allowlist before touching kubectl.
         "Execute Remediation": lambda d: {
             "popeye_score": _scan(node_outputs, upstream_data).get("score", 0),
-            "plan": d.get("_dify_lite_plan") if isinstance(d, dict) else None,
+            "plan": _agent(node_outputs, d).get("_dify_lite_plan"),
         },
     }
 

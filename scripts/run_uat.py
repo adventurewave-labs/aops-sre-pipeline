@@ -441,6 +441,39 @@ def t14_executor_rejects_steps_outside_its_allowlist():
                      "steps_rejected": (result or {}).get("steps_rejected")})
 
 
+def t15_slack_card_carries_the_agent_runbook():
+    """The headline claim: the card Slack receives must contain the runbook.
+
+    T07 asserts the workflow's shape and that Slack answers 200. Neither is
+    enough: the fan-out from the agent to the executor and to Slack means one
+    sibling can be handed the other's response, and the card then publishes an
+    empty 'text' while every node still reports HTTP 200. That is exactly what
+    happened, and it went unnoticed through a fully green suite.
+    """
+    t0 = time.time()
+    st_fire, _ = http_post(f"{BASE['n8n']}/webhook/aops-alert",
+                           {"alertname": "PaymentAPIHighErrorRate",
+                            "namespace": "payment-prod", "severity": "critical"})
+    st_card, cards = http_get(f"{BASE['slack']}/alerts.json")
+    alerts = (cards or {}).get("alerts") or []
+    last = alerts[-1] if alerts else {}
+    text = last.get("text") or ""
+    # A real runbook, not a stringified copy of the envelope around it.
+    looks_like_runbook = "Remediation Runbook" in text
+    not_self_referential = '"text"' not in text[:200]
+    passed = (st_fire == 200 and st_card == 200 and len(text) > 500
+              and looks_like_runbook and not_self_referential
+              and last.get("data_source") in ("fixtures", "live-cluster"))
+    record("T15", "Slack card carries the agent's runbook, not an empty envelope",
+           "pass" if passed else "fail",
+           int((time.time() - t0) * 1000),
+           evidence={"runbook_chars": len(text),
+                     "starts_with": text[:60],
+                     "looks_like_runbook": looks_like_runbook,
+                     "not_self_referential": not_self_referential,
+                     "data_source": last.get("data_source")})
+
+
 def _scan_report() -> dict:
     st, scan = http_post(f"{BASE['popeye']}/scan?namespace=payment-prod", None)
     return scan
@@ -462,6 +495,7 @@ def main():
     t12_remediation_plan_is_structured_and_allowlisted()
     t13_executor_refuses_to_mutate_on_fixture_data()
     t14_executor_rejects_steps_outside_its_allowlist()
+    t15_slack_card_carries_the_agent_runbook()
 
     passed = sum(1 for r in RESULTS if r["status"] == "pass")
     failed = len(RESULTS) - passed

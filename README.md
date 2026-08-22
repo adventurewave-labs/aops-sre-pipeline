@@ -3,7 +3,7 @@
 [![CI](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-7c5cff.svg)](LICENSE)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/adventurewave-labs/aops-sre-pipeline)
-[![UAT: 14/14](https://img.shields.io/badge/UAT-14%2F14-4ade80.svg)](#-test-it)
+[![UAT: 15/15](https://img.shields.io/badge/UAT-15%2F15-4ade80.svg)](#-test-it)
 [![Sandbox E2E: ~55ms](https://img.shields.io/badge/sandbox%20E2E-~55ms-00d4ff.svg)](#-test-it)
 
 > An alert-driven SRE pipeline: Prometheus fires → n8n catches → Popeye scans → an agent reasons over the findings → a validated plan is applied by kubectl → Slack gets the card.
