@@ -120,9 +120,13 @@ KINDCFG
     local timeout=120
     local elapsed=0
     while [[ $elapsed -lt $timeout ]]; do
-        local not_ready
-        not_ready=$(kubectl get nodes --no-headers 2>/dev/null | grep -v ' Ready' | wc -l)
-        if [[ "$not_ready" -eq 0 ]]; then
+        # Do NOT pipe into grep here: under `set -euo pipefail`, grep exiting 1
+        # on zero matches kills the script -- and zero matches is exactly the
+        # success case (no node lacking ' Ready'). Keep grep inside `if`, where
+        # its exit status is consumed rather than fatal.
+        local nodes
+        nodes=$(kubectl get nodes --no-headers 2>/dev/null) || nodes=""
+        if [[ -n "$nodes" ]] && ! grep -qv ' Ready' <<<"$nodes"; then
             log_ok "All nodes Ready"
             break
         fi
