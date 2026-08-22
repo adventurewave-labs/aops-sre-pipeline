@@ -18,6 +18,21 @@ set -uo pipefail
 AOPS_ROOT="${AOPS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$AOPS_ROOT" || { echo "demo: cannot cd to $AOPS_ROOT" >&2; exit 1; }
 
+# Wait for a keypress only when a human is actually watching. Without this
+# the demo blocks forever under CI or any non-interactive shell, which is why
+# it could never be recorded or gated unattended. Note that a tty check alone
+# is not enough: asciinema runs the command inside a pty, so `-t 0` is true
+# even while recording. AOPS_DEMO_NONINTERACTIVE=1 is the explicit override.
+pause_step() {
+  if [[ -t 0 && -z "${AOPS_DEMO_NONINTERACTIVE:-}" ]]; then
+    echo -e "${yellow}Press [enter] to $1...${reset}"
+    read -r
+  else
+    echo -e "${yellow}$1...${reset}"
+    sleep 1
+  fi
+}
+
 bold="\033[1m"
 dim="\033[2m"
 red="\033[31m"
@@ -53,7 +68,7 @@ echo -e "  the findings → posts a Slack card with the fix.${reset}"
 echo ""
 sleep 0.6
 echo -e "${bold}In this 30-second demo we will:${reset}"
-echo -e "  ${cyan}1.${reset}  boot 5 services as plain Python processes"
+echo -e "  ${cyan}1.${reset}  boot 6 services as plain Python processes"
 echo -e "  ${cyan}2.${reset}  probe mock Kubernetes for 6 broken resources"
 echo -e "  ${cyan}3.${reset}  run Popeye — emit 24 findings"
 echo -e "  ${cyan}4.${reset}  watch a data packet flow through the pipeline"
@@ -90,8 +105,7 @@ echo -e "  ${cyan}n8n-runner${reset}      :5678   Webhook + workflow executor"
 sleep 0.7
 
 echo ""
-echo -e "${yellow}Press [enter] to boot the stack...${reset}"
-read -r
+pause_step "boot the stack"
 
 # ===== 3. Boot the stack =====
 echo -e "${bold}\n▸ ./run.sh up-sandbox${reset}"
@@ -279,8 +293,7 @@ sleep 1.0
 
 echo ""
 echo -e "${yellow}Firing the alert + streaming n8n-runner logs in real-time...${reset}"
-echo -e "${yellow}Press [enter] to fire the alert...${reset}"
-read -r
+pause_step "fire the alert"
 
 # ===== 11. Fire alert + real-time log tail =====
 echo -e "${bold}▸ ./run.sh alert  (and tail -f var/log/n8n-runner.log)${reset}"
@@ -349,16 +362,21 @@ sleep 1.2
 AOPS_MS="$(python3 -c "
 import json
 try:
-    d = json.load(open('/tmp/alert-response.json'))
-    print(int(round(float(d.get('duration_s', 0)) * 1000)))
+    raw = open('/tmp/alert-response.json').read()
+    # run.sh prints a human preamble before the JSON body, so decode from the
+    # first brace rather than assuming the whole file is a JSON document.
+    i = raw.find('{')
+    d = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
+    ms = int(round(float(d.get('duration_s', 0)) * 1000))
+    print(ms if ms > 0 else -1)
 except Exception:
     print(-1)
 ")"
 if [[ "$AOPS_MS" -lt 0 ]]; then
-  AOPS_LAT="unmeasured"
+  AOPS_LAT="unmeasured (the alert response carried no duration)"
   AOPS_CELL_TXT="  Pipeline round trip: unmeasured"
 else
-  AOPS_LAT="${AOPS_MS} ms"
+  AOPS_LAT="${AOPS_MS} ms  (measured just now, stub backend, fixtures)"
   AOPS_CELL_TXT="  Pipeline round trip: ${AOPS_MS} ms (measured)"
 fi
 # Pad to the dashboard's right-hand cell width so the box never skews.
@@ -444,7 +462,7 @@ cat <<RECAP
                                  allowlist, DRY_RUN=1, refused unless the scan
                                  says data_source=live-cluster
 
-   End-to-end latency: ${AOPS_LAT}  (measured just now, stub backend, fixtures)
+   End-to-end latency: ${AOPS_LAT}
 
    This run used fixtures and applied nothing. For a real cluster:
      ./scripts/setup-kind-cluster.sh up  &&  ./scripts/verify-real-mode.sh
