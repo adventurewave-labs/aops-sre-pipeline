@@ -7,9 +7,11 @@
   <meta name="description" content="Open-source alert-driven autonomous SRE pipeline. Real Prometheus + n8n + Popeye + Ollama LLM + kubectl remediation + Slack. Two modes: full real stack or self-contained sandbox.">
   <meta property="og:title" content="A.O.P.S. — Automated Off-the-shelf Pipeline SRE">
   <meta property="og:description" content="Open-source alert-driven autonomous SRE pipeline with real Prometheus, n8n, Popeye, Ollama LLM, kubectl remediation, and Slack notification. Runs in two modes: full real stack or self-contained sandbox.">
-  <meta property="og:image" content="aops-demo-poster.png">
-  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://aops-sre-pipeline.vercel.app/aops-demo-poster.png">
+  <meta property="og:url" content="https://aops-sre-pipeline.vercel.app/">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://aops-sre-pipeline.vercel.app/aops-demo-poster.png">
+  <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%235d3bf2'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
   <style>
     /* ============ design tokens ============ */
@@ -493,7 +495,7 @@
   <div class="wrap">
     <div class="pill fade fade-1">
       <span class="dot"></span>
-      v0.1 · 14/14 UAT pass · MIT · 16 topics
+      v0.1 · 15/15 UAT pass · MIT · 16 topics
     </div>
     <h1 class="hero-title fade fade-2">
       The autonomous <span class="grad">SRE pipeline</span><br>
@@ -569,7 +571,7 @@
 <span class="m">│</span>   <span class="b">Real n8n  (n8nio/n8n:latest)</span>           <span class="m">──►  visual workflow editor + auto-imported aops-workflow.json</span>       <span class="m">│</span>
 <span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
 <span class="m">│</span>            <span class="m">▼</span>  HTTP POST /scan?namespace=payment-prod                                                     <span class="m">│</span>
-<span class="m">│</span>   <span class="d">Popeye scanner</span>                           <span class="m">──►  real binary (100+ analyzers) or built-in 14-code fallback</span>          <span class="m">│</span>
+<span class="m">│</span>   <span class="d">Popeye scanner</span>                           <span class="m">──►  real binary (100+ diagnostic codes) or built-in 14-code fallback</span>          <span class="m">│</span>
 <span class="m">│</span>            <span class="m">│</span>                                                                                               <span class="m">│</span>
 <span class="m">│</span>            <span class="m">│</span>   queries real K8s API (or mock-k8s-api in sandbox)                                               <span class="m">│</span>
 <span class="m">│</span>            <span class="m">▼</span>                                                                                               <span class="m">│</span>
@@ -611,7 +613,7 @@
         <div class="ic" style="background: linear-gradient(135deg, #4ade80, #22c55e)">POP</div>
         <h3>popeye-scanner</h3>
         <div class="port">:8004</div>
-        <p>Real <code>popeye</code> Go binary (100+ analyzers) with automatic fallback to built-in Python engine (14 codes). Both emit standard Popeye-shaped sanitizer JSON. Set <code>POPEYE_MODE=real</code> to prefer the binary.</p>
+        <p>Real <code>popeye</code> Go binary (100+ diagnostic codes) with automatic fallback to built-in Python engine (14 codes). Both emit standard Popeye-shaped sanitizer JSON. Set <code>POPEYE_MODE=real</code> to prefer the binary.</p>
         <div class="replace">Replaces: <code>K8sGPT</code></div>
       </div>
       <div class="card">
@@ -676,7 +678,7 @@
 
       <div class="mock-card">
         <h4><span class="tag-real">Real</span> Popeye Binary</h4>
-        <p>In real mode, the scanner invokes the actual <code>popeye</code> Go binary (100+ analyzers) against the live cluster. If the binary isn't installed or times out, it falls back seamlessly to the built-in Python analyzers (14 codes covering Node, Deployment, Pod, Ingress, Service, PVC).</p>
+        <p>In real mode, the scanner invokes the actual <code>popeye</code> Go binary (100+ diagnostic codes) against the live cluster. If the binary isn't installed or times out, it falls back seamlessly to the built-in Python analyzers (14 codes covering Node, Deployment, Pod, Ingress, Service, PVC).</p>
       </div>
 
       <div class="mock-card">
@@ -749,15 +751,20 @@
           <tr><td><code>T04</code></td><td>dify-lite health endpoint reports backend selection</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
           <tr><td><code>T05</code></td><td>dify-lite chat completion produces a structured remediation</td><td><span class="pass">✓ pass</span></td><td>17 ms</td></tr>
           <tr><td><code>T06</code></td><td>mock-slack stores the rendered Slack card</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
-          <tr><td><code>T07</code></td><td>n8n-runner workflow has 5 nodes in expected order</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
+          <tr><td><code>T07</code></td><td>n8n-runner workflow has 6 nodes in expected order</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
           <tr><td><code>T08</code></td><td>end-to-end alert flow completes in &lt; 2 s</td><td><span class="pass">✓ pass</span></td><td>~55ms</td></tr>
           <tr><td><code>T09</code></td><td>idempotency: firing N times produces N distinct runs</td><td><span class="pass">✓ pass</span></td><td>1 ms</td></tr>
           <tr><td><code>T10</code></td><td>resilience: dify-lite survives malformed message body</td><td><span class="pass">✓ pass</span></td><td>3 ms</td></tr>
+          <tr><td><code>T11</code></td><td>scan reports its data provenance and never mislabels fixtures</td><td><span class="pass">✓ pass</span></td><td>40 ms</td></tr>
+          <tr><td><code>T12</code></td><td>agent emits a structured plan using only allowlisted verbs</td><td><span class="pass">✓ pass</span></td><td>28 ms</td></tr>
+          <tr><td><code>T13</code></td><td>executor never applies real changes from fixture-backed reports</td><td><span class="pass">✓ pass</span></td><td>44 ms</td></tr>
+          <tr><td><code>T14</code></td><td>executor rejects plan steps outside its allowlist</td><td><span class="pass">✓ pass</span></td><td>39 ms</td></tr>
+          <tr><td><code>T15</code></td><td>Slack card carries the agent&#x27;s runbook, not an empty envelope</td><td><span class="pass">✓ pass</span></td><td>69 ms</td></tr>
         </tbody>
       </table>
       <div class="uat-summary">
-        <span class="big">14 / 14</span>
-        <span>passed · 0 failed · end-to-end latency ~55ms · 24 Popeye findings · 4.2 KB remediation runbook</span>
+        <span class="big">15 / 15</span>
+        <span>passed · 0 failed · end-to-end latency ~55ms · 24 Popeye findings · 4.2 KB remediation runbook<br><small>Durations are from the run that produced this badge; re-run <code>python3 scripts/run_uat.py</code> to reproduce.</small></span>
       </div>
     </div>
   </div>
@@ -774,7 +781,7 @@
           <span class="tag" style="background:#888">SANDBOX</span>
           <span>no Docker · stub backend · ~55ms</span>
         </div>
-        <pre><span class="cmt"># clone + start all 5 services as Python processes</span>
+        <pre><span class="cmt"># clone + start all 6 services as Python processes</span>
 <span class="cmd">git</span> <span class="arg">clone</span> https://github.com/adventurewave-labs/aops-sre-pipeline.git
 <span class="cmd">cd</span> aops-sre-pipeline
 
@@ -831,7 +838,7 @@
       </a>
     </div>
     <div class="meta">
-      Built by adventurewave-labs · MIT · 9+ services · real Popeye + Ollama + n8n · 14/14 UAT pass
+      Built by adventurewave-labs · MIT · 9+ services · real Popeye + Ollama + n8n · 15/15 UAT pass
     </div>
   </div>
 </footer>
