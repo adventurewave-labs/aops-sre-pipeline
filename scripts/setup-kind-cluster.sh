@@ -6,10 +6,12 @@
 # to the A.O.P.S. services.
 #
 # Usage:
-#   ./scripts/setup-kind-cluster.sh          # Create + deploy broken resources
-#   ./scripts/setup-kind-cluster.sh destroy   # Tear down the cluster
-#   ./scripts/setup-kind-cluster.sh status    # Show cluster + resource status
+#   ./scripts/setup-kind-cluster.sh            # Create + deploy + verify wiring
+#   ./scripts/setup-kind-cluster.sh up-all     # ... and induce DiskPressure
+#   ./scripts/setup-kind-cluster.sh verify     # Re-check the real-mode wiring
+#   ./scripts/setup-kind-cluster.sh status     # Show cluster + resource status
 #   ./scripts/setup-kind-cluster.sh reset      # Destroy + recreate
+#   ./scripts/setup-kind-cluster.sh destroy    # Tear down the cluster
 
 set -euo pipefail
 
@@ -65,7 +67,7 @@ check_prereqs() {
     fi
 
     log_ok "kind $(kind version | head -1)"
-    log_ok "kubectl $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
+    log_ok "kubectl $(kubectl version --client 2>/dev/null | head -1)"
     log_ok "docker $(docker --version)"
 }
 
@@ -89,6 +91,14 @@ nodes:
     extraPortMappings:
       - containerPort: 30080
         hostPort: 30080
+        protocol: TCP
+      # kube-state-metrics (Prometheus scrape target)
+      - containerPort: 30081
+        hostPort: 30081
+        protocol: TCP
+      # payment-api RED metrics (Prometheus scrape target)
+      - containerPort: 30082
+        hostPort: 30082
         protocol: TCP
   - role: worker
     labels:
@@ -196,15 +206,109 @@ induce_disk_pressure() {
 
 
 # ---- Export kubeconfig ----
+#
+# TWO kubeconfigs are needed and they are not interchangeable:
+#
+#   .kubeconfig           host-facing.  server: https://127.0.0.1:<random port>
+#                         Used by kubectl on your laptop.
+#   .kubeconfig.internal  container-facing. server: https://<cluster>-control-plane:6443
+#                         Used by the A.O.P.S. containers, which are attached to
+#                         the `kind` docker network.
+#
+# Mounting the host-facing one into a container is the classic kind mistake:
+# 127.0.0.1 inside a container is that container, so every kubectl call gets
+# connection-refused. `kind get kubeconfig --internal` is the fix.
 export_kubeconfig() {
-    local kubeconfig
-    kubeconfig="$PROJECT_ROOT/.kubeconfig"
-    kind export kubeconfig --name "$CLUSTER_NAME" 2>/dev/null || true
-    # Copy to project dir for docker volume mount
-    cp "${HOME}/.kube/config" "$kubeconfig" 2>/dev/null || true
-    export KUBECONFIG="$kubeconfig"
-    log_info "Kubeconfig exported to $kubeconfig"
-    echo "  Set KUBECONFIG_PATH=$kubeconfig when running docker compose"
+    local host_cfg="$PROJECT_ROOT/.kubeconfig"
+    local int_cfg="$PROJECT_ROOT/.kubeconfig.internal"
+
+    kind export kubeconfig --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
+    kind get kubeconfig --name "$CLUSTER_NAME" > "$host_cfg"
+    kind get kubeconfig --name "$CLUSTER_NAME" --internal > "$int_cfg"
+    chmod 600 "$host_cfg" "$int_cfg"
+
+    export KUBECONFIG="$host_cfg"
+    log_info "Host kubeconfig      -> $host_cfg"
+    log_info "Container kubeconfig -> $int_cfg  ($(grep -m1 server: "$int_cfg" | tr -s ' '))"
+    echo ""
+    echo "  export KUBECONFIG_PATH=$int_cfg   # <- this is the one docker compose wants"
+}
+
+
+# ---- kube-state-metrics + a metrics-emitting payment-api (D5) ----
+#
+# Every alert rule in services/prometheus-alertmanager/config/alert_rules.yml
+# is written against kube-state-metrics series. Without KSM in the cluster,
+# Prometheus scrapes nothing, no rule can ever fire, and the "real Prometheus
+# fires" claim is unbacked. This deploys it.
+deploy_observability() {
+    log_info "Deploying kube-state-metrics into the cluster..."
+    kubectl apply -f "$MANIFESTS_DIR/../k8s-observability/kube-state-metrics.yaml"
+    kubectl -n kube-system rollout status deployment/kube-state-metrics \
+        --timeout=120s || log_warn "kube-state-metrics did not become Ready in time"
+
+    log_info "Deploying the payment-api metrics exporter (RED metrics)..."
+    kubectl apply -f "$MANIFESTS_DIR/../k8s-observability/payment-api-metrics.yaml"
+    kubectl -n payment-prod rollout status deployment/payment-api-metrics \
+        --timeout=120s || log_warn "payment-api-metrics did not become Ready in time"
+
+    log_info "NodePorts: kube-state-metrics :30081, payment-api metrics :30082"
+    kubectl -n kube-system get svc kube-state-metrics -o wide || true
+
+    log_ok "Observability stack deployed"
+    echo ""
+    echo "  Prometheus scrapes it at kube-state-metrics.kube-system.svc:8080"
+    echo "  (from the host: http://localhost:30081/metrics)"
+}
+
+
+# ---- Verify the real-mode wiring end to end ----
+verify_real_mode() {
+    local failures=0
+    local int_cfg="$PROJECT_ROOT/.kubeconfig.internal"
+
+    echo ""
+    echo -e "${BOLD}Verifying real-mode wiring${RESET}"
+
+    _check() {
+        local label="$1"; shift
+        if "$@" >/dev/null 2>&1; then
+            log_ok "$label"
+        else
+            log_error "$label"
+            failures=$((failures + 1))
+        fi
+    }
+
+    _check "cluster reachable from host"        kubectl get nodes
+    _check "payment-prod namespace exists"      kubectl get ns payment-prod
+    _check "broken deployments present"         kubectl -n payment-prod get deploy payment-api payment-worker
+    _check "dangling ingress present"           kubectl -n payment-prod get ingress payment-ingress
+    _check "pending PVC present"                kubectl -n payment-prod get pvc payment-data-pvc
+    _check "internal kubeconfig written"        test -s "$int_cfg"
+    _check "internal kubeconfig is container-facing" \
+        bash -c "grep -q 'server: https://${CLUSTER_NAME}-control-plane:6443' '$int_cfg'"
+    _check "kube-state-metrics running"         kubectl -n kube-system get deploy kube-state-metrics
+    _check "payment-api metrics exporter running" \
+        kubectl -n payment-prod get deploy payment-api-metrics
+    _check "kube-state-metrics serving series"  \
+        bash -c "kubectl -n kube-system exec deploy/kube-state-metrics -- true 2>/dev/null || curl -fsS http://localhost:30081/metrics | grep -q kube_pod_info"
+    _check "payment-api emitting http_requests_total" \
+        bash -c "curl -fsS http://localhost:30082/metrics | grep -q http_requests_total"
+    _check "kind docker network exists"         docker network inspect kind
+
+    echo ""
+    if [[ $failures -eq 0 ]]; then
+        log_ok "Real-mode wiring verified (all checks passed)"
+        echo ""
+        echo "  Next:"
+        echo "    export KUBECONFIG_PATH=$int_cfg"
+        echo "    docker compose --profile monitoring up -d"
+        echo "    ./scripts/verify-real-mode.sh      # end-to-end pipeline check"
+    else
+        log_error "$failures check(s) failed — real mode is NOT wired correctly"
+        return 1
+    fi
 }
 
 
@@ -238,7 +342,7 @@ show_status() {
 destroy_cluster() {
     log_info "Destroying cluster '$CLUSTER_NAME'..."
     kind delete cluster --name "$CLUSTER_NAME" 2>/dev/null || true
-    rm -f "$PROJECT_ROOT/.kubeconfig"
+    rm -f "$PROJECT_ROOT/.kubeconfig" "$PROJECT_ROOT/.kubeconfig.internal"
     log_ok "Cluster destroyed"
 }
 
@@ -249,21 +353,27 @@ case "${1:-up}" in
         check_prereqs
         create_cluster
         deploy_broken_resources
+        deploy_observability
+        verify_real_mode
         echo ""
         log_ok "Kind cluster is ready!"
         echo ""
         echo "  Next steps:"
-        echo "    export KUBECONFIG_PATH=$(pwd)/.kubeconfig"
-        echo "    docker compose up -d"
+        echo "    export KUBECONFIG_PATH=$PROJECT_ROOT/.kubeconfig.internal"
+        echo "    docker compose -f docker-compose.yml -f docker-compose.real.yml \\"
+        echo "                   --profile monitoring up -d"
+        echo "    ./scripts/verify-real-mode.sh"
         echo "    # Or for sandbox mode (no cluster needed):"
-        echo "    AOPS_MODE=sandbox docker compose --profile sandbox up -d"
+        echo "    docker compose --profile sandbox up -d"
         echo ""
         ;;
     up-all)
         check_prereqs
         create_cluster
         deploy_broken_resources
+        deploy_observability
         induce_disk_pressure
+        verify_real_mode
         echo ""
         log_ok "Kind cluster fully ready with all broken resources!"
         ;;
@@ -278,18 +388,23 @@ case "${1:-up}" in
     status)
         show_status
         ;;
+    verify)
+        export_kubeconfig
+        verify_real_mode
+        ;;
     kubeconfig)
         export_kubeconfig
         echo "$PROJECT_ROOT/.kubeconfig"
         ;;
     *)
-        echo "Usage: $0 {up|up-all|destroy|reset|status|kubeconfig}"
+        echo "Usage: $0 {up|up-all|destroy|reset|status|verify|kubeconfig}"
         echo ""
         echo "  up          Create cluster + deploy broken resources"
         echo "  up-all      Create cluster + deploy + induce DiskPressure"
         echo "  destroy     Tear down the cluster"
         echo "  reset       Destroy + recreate"
         echo "  status      Show cluster and resource status"
+        echo "  verify      Check the real-mode wiring (kubeconfig, KSM, resources)"
         echo "  kubeconfig  Export kubeconfig path for docker compose"
         exit 1
         ;;
