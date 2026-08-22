@@ -1,0 +1,231 @@
+# The gate that would have caught every defect in the 2026-08-21 audit.
+#
+# HEAD shipped with an undefined function in the scanner, a broken Codespaces
+# postCreateCommand, a UAT suite asserting a workflow shape that no longer
+# existed, and a Dockerfile that could not build. All four are mechanically
+# detectable; none were detected, because nothing ran on push.
+name: CI
+
+on:
+  push:
+    branches: [main, "**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+
+      - name: Byte-compile every Python source
+        run: python3 -m compileall -q services scripts tests
+
+      - name: Shell syntax
+        run: |
+          for f in run.sh scripts/*.sh services/prometheus-mock/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || exit 1
+          done
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: error
+          scandir: '.'
+
+      - name: Validate YAML and JSON
+        run: |
+          python3 - <<'PY'
+          import json, sys, glob, yaml
+          bad = 0
+          for f in glob.glob("**/*.y*ml", recursive=True):
+              if ".github" in f: continue
+              try: list(yaml.safe_load_all(open(f)))
+              except Exception as e: print(f"YAML {f}: {e}"); bad = 1
+          for f in glob.glob("**/*.json", recursive=True):
+              try: json.load(open(f))
+              except Exception as e: print(f"JSON {f}: {e}"); bad = 1
+          sys.exit(bad)
+          PY
+
+      - name: Documented run.sh subcommands must exist
+        # The Codespaces badge broke because the docs, the devcontainer and the
+        # demo script all called a subcommand that had been renamed away.
+        # Static check: every ./run.sh <cmd> referenced anywhere must appear as
+        # a dispatchable arm in run.sh's case statement.
+        run: |
+          python3 - <<'PY'
+          import re, sys, pathlib
+
+          run_sh = pathlib.Path("run.sh").read_text()
+          case_block = run_sh[run_sh.index("case \"${1:-up}\" in"):run_sh.index("esac")]
+          dispatchable = set()
+          for arm in re.findall(r"^\s*([a-z|-]+)\)", case_block, re.M):
+              dispatchable.update(arm.split("|"))
+
+          sources = ["README.md", ".devcontainer/devcontainer.json",
+                     "scripts/demo_script.sh", "site/index.html"]
+          referenced = {}
+          for src in sources:
+              path = pathlib.Path(src)
+              if not path.exists():
+                  continue
+              for cmd in re.findall(r"\./run\.sh ([a-z][a-z-]*)", path.read_text()):
+                  referenced.setdefault(cmd, set()).add(src)
+
+          missing = {c: v for c, v in referenced.items() if c not in dispatchable}
+          for cmd, where in sorted(missing.items()):
+              print(f"run.sh has no '{cmd}' subcommand, referenced by: {', '.join(sorted(where))}")
+          if missing:
+              sys.exit(1)
+          print(f"all {len(referenced)} documented subcommands are dispatchable: "
+                f"{sorted(referenced)}")
+          PY
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: python3 tests/test_popeye_parser.py
+      - run: python3 tests/test_remediation_allowlist.py
+
+  sandbox:
+    name: Sandbox stack + UAT
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+
+      - name: Start the sandbox stack
+        run: ./run.sh up-sandbox
+
+      - name: Smoke test
+        run: python3 scripts/smoke_test.py
+
+      - name: UAT matrix
+        run: python3 scripts/run_uat.py
+
+      - name: Fire an alert end to end
+        run: ./run.sh alert
+
+      - name: Assert the badge numbers the README claims
+        run: |
+          python3 - <<'PY'
+          import json, re, sys
+          res = json.load(open("var/uat-results.json"))
+          readme = open("README.md").read()
+          claimed = re.search(r"UAT-(\d+)%2F(\d+)", readme)
+          if not claimed:
+              print("no UAT badge in README"); sys.exit(1)
+          cp, ct = int(claimed.group(1)), int(claimed.group(2))
+          if (res["passed"], res["total"]) != (cp, ct):
+              print(f"README badge claims {cp}/{ct}, suite reports "
+                    f"{res['passed']}/{res['total']}")
+              sys.exit(1)
+          if res["failed"]:
+              print("UAT failures"); sys.exit(1)
+          print(f"badge matches reality: {cp}/{ct}")
+
+          # Latency drift. The demo script used to hardcode "~23 ms" while the
+          # README badge said "~55ms" -- two different numbers for the same
+          # thing, neither measured. Every latency claim in the docs must now
+          # sit within a sane band of what the suite actually measured, and no
+          # source file may hardcode a latency in the demo output.
+          measured_ms = None
+          for t in res.get("results", []):
+              if t.get("test_id") == "T08" or "end-to-end" in t.get("name", "").lower():
+                  measured_ms = t.get("duration_ms")
+                  break
+
+          claims = []
+          for src in ("README.md", "site/index.html"):
+              try:
+                  text = open(src).read()
+              except FileNotFoundError:
+                  continue
+              for m in re.finditer(r"~\s*(\d+(?:\.\d+)?)\s*ms", text):
+                  claims.append((src, float(m.group(1))))
+
+          if measured_ms is None:
+              print("WARN: suite reported no end-to-end duration; skipping latency check")
+          else:
+              print(f"measured end-to-end: {measured_ms} ms")
+              bad = [(s_, v) for s_, v in claims if not (measured_ms * 0.4 <= v <= measured_ms * 2.5)]
+              for s_, v in bad:
+                  print(f"{s_} claims ~{v:g}ms but the suite measured {measured_ms}ms")
+              if bad:
+                  sys.exit(1)
+              print(f"{len(claims)} latency claim(s) consistent with measurement")
+
+          # No hardcoded latency in the demo script -- it must interpolate.
+          demo = open("scripts/demo_script.sh").read()
+          hardcoded = re.findall(r"(?<!\$\{)(?<![A-Z_])\b\d+\s*ms\b", demo)
+          if hardcoded:
+              print(f"scripts/demo_script.sh hardcodes a latency: {hardcoded}")
+              sys.exit(1)
+          print("demo script hardcodes no latency")
+          PY
+
+      - name: Service logs on failure
+        if: failure()
+        run: tail -n 60 var/log/*.log || true
+
+      - name: Stop
+        if: always()
+        run: ./run.sh stop || true
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [mock-k8s-api, popeye-scanner, dify-lite, mock-slack,
+                  n8n-runner, remediation-executor]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.service }}
+        # popeye-scanner's Dockerfile silently could not build for the entire
+        # life of the repo - bad release tag, wrong asset name, and curl purged
+        # before it was used again. This job is why that cannot recur.
+        run: docker build -t aops/${{ matrix.service }}:ci services/${{ matrix.service }}
+
+      - name: Tools present in popeye-scanner image
+        if: matrix.service == 'popeye-scanner'
+        run: |
+          docker run --rm aops/popeye-scanner:ci popeye version
+          docker run --rm aops/popeye-scanner:ci kubectl version --client
+
+  compose:
+    name: Compose config is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Base compose (must be valid with no cluster present)
+        run: docker compose -f docker-compose.yml config >/dev/null
+      - name: Sandbox profile
+        run: docker compose -f docker-compose.yml --profile sandbox config >/dev/null
+      - name: Real overlay parses
+        run: |
+          docker network create kind >/dev/null 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.real.yml config >/dev/null
+      - name: n8n import step exists (no fictional env vars)
+        run: |
+          if grep -q 'N8N_IMPORT_FILE' docker-compose.yml; then
+            echo "N8N_IMPORT_FILE is not an n8n feature - workflows import via 'n8n import:workflow'"
+            exit 1
+          fi
+          grep -q 'n8n import:workflow' docker-compose.yml

@@ -46,20 +46,43 @@ class PopeyeHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _scan(self, ns: str):
+        try:
+            return self._send(200, scanner.build_report(ns))
+        except scanner.ClusterUnreachable as e:
+            # 503, never 200-with-fixtures. A caller acting on this report
+            # must be able to tell "cluster is broken" from "cluster is fine".
+            log.error("scan refused: %s", e)
+            return self._send(503, {
+                "status": "cluster_unreachable",
+                "message": str(e),
+                "aops_mode": scanner.AOPS_MODE,
+                "hint": "Point KUBECONFIG at a reachable cluster, or run with "
+                        "AOPS_MODE=sandbox to scan the bundled fixtures.",
+            })
+        except Exception as e:
+            log.exception("scan failed")
+            return self._send(500, {"status": "error", "message": str(e)})
+
     def do_GET(self):
         u = urlparse(self.path)
         if u.path in ("/healthz", "/livez", "/readyz"):
-            return self._send(200, {"status": "ok", "scanner": "popeye"})
+            reachable, detail = scanner.CLIENT.probe()
+            return self._send(200, {
+                "status": "ok",
+                "scanner": "popeye",
+                "aops_mode": scanner.AOPS_MODE,
+                "popeye_mode": scanner.POPEYE_MODE,
+                "popeye_binary": scanner.POPEYE_BIN or None,
+                "data_source": scanner.CLIENT.data_source,
+                "cluster_reachable": reachable,
+                "cluster_detail": detail,
+            })
         if u.path == "/scan":
             qs = parse_qs(u.query)
             ns = (qs.get("namespace") or [scanner.NAMESPACE])[0]
             log.info("GET /scan?namespace=%s", ns)
-            try:
-                report = scanner.build_report(ns)
-                return self._send(200, report)
-            except Exception as e:
-                log.exception("scan failed")
-                return self._send(500, {"status": "error", "message": str(e)})
+            return self._scan(ns)
         return self._send(404, {"status": "error", "message": "not found"})
 
     def do_POST(self):
@@ -70,12 +93,7 @@ class PopeyeHandler(BaseHTTPRequestHandler):
             qs = parse_qs(u.query)
             ns = (qs.get("namespace") or [scanner.NAMESPACE])[0]
             log.info("POST /scan?namespace=%s", ns)
-            try:
-                report = scanner.build_report(ns)
-                return self._send(200, report)
-            except Exception as e:
-                log.exception("scan failed")
-                return self._send(500, {"status": "error", "message": str(e)})
+            return self._scan(ns)
         return self._send(404, {"status": "error", "message": "not found"})
 
     def do_HEAD(self):
@@ -86,8 +104,13 @@ class PopeyeHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    log.info("Popeye scanner API on %s:%d (k8s_url=%s)",
-             BIND_HOST, BIND_PORT, scanner.MOCK_K8S_URL)
+    log.info("Popeye scanner API on %s:%d (mode=%s, data_source=%s, engine=%s)",
+             BIND_HOST, BIND_PORT, scanner.AOPS_MODE,
+             scanner.CLIENT.data_source,
+             "popeye-binary" if (scanner.POPEYE_BIN and
+                                 scanner.POPEYE_MODE == "real" and
+                                 scanner.AOPS_MODE == "real")
+             else "builtin-analyzers")
     srv = ThreadingHTTPServer((BIND_HOST, BIND_PORT), PopeyeHandler)
     srv.daemon_threads = True
     try:

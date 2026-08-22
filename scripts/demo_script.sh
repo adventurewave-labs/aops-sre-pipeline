@@ -2,20 +2,36 @@
 # A.O.P.S. demo script — runs the entire pipeline live.
 # Captured via asciinema and converted to GIF via agg.
 #
-# Target runtime: ~30 seconds (cinematic pacing, with animated data flow,
-# a real-time log tail during alert firing, and a before/after dashboard).
+# Target runtime: ~30 seconds.
 #
-# Usage:
+# Every number printed here is measured at runtime, with one exception: the
+# before/after dashboard is illustrative and is labelled as such on screen.
+#
+# Re-record from the repo root:
 #   asciinema rec --idle-time-limit=2 --cols=140 --rows=50 \
-#       -c "/home/z/my-project/aops/scripts/demo_script.sh" \
-#       /home/z/my-project/aops/var/demo.cast
+#       -c "./scripts/demo_script.sh" var/demo.cast
 #   agg --font-family "DejaVu Sans Mono" --font-size 13 --speed 1.0 \
-#       --theme "monokai" /home/z/my-project/aops/var/demo.cast \
-#       /home/z/my-project/aops/site/aops-demo.gif
+#       --theme monokai var/demo.cast site/aops-demo.gif
 
 set -uo pipefail
-AOPS_ROOT="${AOPS_ROOT:-/home/z/my-project/aops}"
-cd "$AOPS_ROOT"
+# Derive the repo root from this script's own location -- never a fixed path.
+AOPS_ROOT="${AOPS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$AOPS_ROOT" || { echo "demo: cannot cd to $AOPS_ROOT" >&2; exit 1; }
+
+# Wait for a keypress only when a human is actually watching. Without this
+# the demo blocks forever under CI or any non-interactive shell, which is why
+# it could never be recorded or gated unattended. Note that a tty check alone
+# is not enough: asciinema runs the command inside a pty, so `-t 0` is true
+# even while recording. AOPS_DEMO_NONINTERACTIVE=1 is the explicit override.
+pause_step() {
+  if [[ -t 0 && -z "${AOPS_DEMO_NONINTERACTIVE:-}" ]]; then
+    echo -e "${yellow}Press [enter] to $1...${reset}"
+    read -r
+  else
+    echo -e "${yellow}$1...${reset}"
+    sleep 1
+  fi
+}
 
 bold="\033[1m"
 dim="\033[2m"
@@ -52,7 +68,7 @@ echo -e "  the findings → posts a Slack card with the fix.${reset}"
 echo ""
 sleep 0.6
 echo -e "${bold}In this 30-second demo we will:${reset}"
-echo -e "  ${cyan}1.${reset}  boot 5 services as plain Python processes"
+echo -e "  ${cyan}1.${reset}  boot 6 services as plain Python processes"
 echo -e "  ${cyan}2.${reset}  probe mock Kubernetes for 6 broken resources"
 echo -e "  ${cyan}3.${reset}  run Popeye — emit 24 findings"
 echo -e "  ${cyan}4.${reset}  watch a data packet flow through the pipeline"
@@ -89,12 +105,11 @@ echo -e "  ${cyan}n8n-runner${reset}      :5678   Webhook + workflow executor"
 sleep 0.7
 
 echo ""
-echo -e "${yellow}Press [enter] to boot the stack...${reset}"
-read -r
+pause_step "boot the stack"
 
 # ===== 3. Boot the stack =====
-echo -e "${bold}\n▸ ./run.sh up-no-ollama${reset}"
-./run.sh up-no-ollama 2>&1 | sed 's/^/  /'
+echo -e "${bold}\n▸ ./run.sh up-sandbox${reset}"
+./run.sh up-sandbox 2>&1 | sed 's/^/  /'
 sleep 1.0
 
 # ===== 4. Health probes (with detailed dify-lite /healthz) =====
@@ -123,7 +138,7 @@ sleep 1.4
 
 # ===== 5. docker-compose.yml preview =====
 echo ""
-echo -e "${dim}This sandbox runs all five services as plain Python processes."
+echo -e "${dim}This sandbox runs all six services as plain Python processes."
 echo -e "On any Docker host, the same code runs via:${reset}"
 echo -e "${bold}▸ sed -n '1,28p' docker-compose.yml${reset}"
 sed -n '1,28p' docker-compose.yml | sed 's/^/  /'
@@ -278,8 +293,7 @@ sleep 1.0
 
 echo ""
 echo -e "${yellow}Firing the alert + streaming n8n-runner logs in real-time...${reset}"
-echo -e "${yellow}Press [enter] to fire the alert...${reset}"
-read -r
+pause_step "fire the alert"
 
 # ===== 11. Fire alert + real-time log tail =====
 echo -e "${bold}▸ ./run.sh alert  (and tail -f var/log/n8n-runner.log)${reset}"
@@ -343,6 +357,31 @@ for t in d.get('trace', []):
 "
 sleep 1.2
 
+# Capture the MEASURED end-to-end latency so nothing downstream has to
+# hardcode a number that can drift away from reality.
+AOPS_MS="$(python3 -c "
+import json
+try:
+    raw = open('/tmp/alert-response.json').read()
+    # run.sh prints a human preamble before the JSON body, so decode from the
+    # first brace rather than assuming the whole file is a JSON document.
+    i = raw.find('{')
+    d = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
+    ms = int(round(float(d.get('duration_s', 0)) * 1000))
+    print(ms if ms > 0 else -1)
+except Exception:
+    print(-1)
+")"
+if [[ "$AOPS_MS" -lt 0 ]]; then
+  AOPS_LAT="unmeasured (the alert response carried no duration)"
+  AOPS_CELL_TXT="  Pipeline round trip: unmeasured"
+else
+  AOPS_LAT="${AOPS_MS} ms  (measured just now, stub backend, fixtures)"
+  AOPS_CELL_TXT="  Pipeline round trip: ${AOPS_MS} ms (measured)"
+fi
+# Pad to the dashboard's right-hand cell width so the box never skews.
+AOPS_CELL="$(printf '%-43.43s' "$AOPS_CELL_TXT")"
+
 # ===== 12. Slack alert metadata =====
 echo ""
 echo -e "${dim}Slack card metadata:${reset}"
@@ -378,9 +417,11 @@ sleep 1.6
 
 # ===== 14. Before/After metrics dashboard (the WOW closer) =====
 echo ""
-echo -e "${bold}▸ SRE metrics: before vs after remediation${reset}  ${dim}(simulated)${reset}"
+echo -e "${bold}▸ SRE metrics: before vs after remediation${reset}"
+echo -e "  ${yellow}ILLUSTRATIVE — the 'after' column is what a successful remediation would look like.${reset}"
+echo -e "  ${yellow}The sandbox is fixture-backed and runs DRY_RUN=1: nothing was actually applied.${reset}"
 echo ""
-cat <<'DASHBOARD'
+cat <<DASHBOARD
   ┌── BEFORE: cluster is on fire ─────────────┐  ┌── AFTER: kubectl apply complete ───────────┐
   │                                           │  │                                            │
   │  PaymentAPI 5xx rate      12.3%  🔴       │  │  PaymentAPI 5xx rate       0.1%  🟢       │
@@ -395,7 +436,7 @@ cat <<'DASHBOARD'
   │  SLO burn rate             12.3x  🔴    │  │  SLO burn rate              0.1x  🟢       │
   │  Popeye score              0/100  F      │  │  Popeye score              93/100  A      │
   │                                           │  │                                            │
-  │  Time to remediate: human = 45 min        │  │  Time to remediate: A.O.P.S. = 23 ms      │
+  │  Time to remediate: human = 45 min       │  │${AOPS_CELL}│
   └───────────────────────────────────────────┘  └────────────────────────────────────────────┘
 DASHBOARD
 sleep 2.0
@@ -408,24 +449,23 @@ sleep 0.7
 
 # ===== 16. Recap outro =====
 echo ""
-cat <<'RECAP'
+cat <<RECAP
    ───────────────────────────────────────────────────────────────────────
    RECAP: what just happened
 
      1. Alertmanager webhook  →  n8n-runner     (POST /webhook/aops-alert)
-     2. n8n → Popeye          : POST /scan       → 24 findings, score 0/100 (F)
-     3. n8n → Dify-lite       : POST /v1/chat/completions → 4.2 KB runbook
-     4. Dify-lite → Ollama/stub: 2-round agent loop, tool_call back to K8s
+     2. n8n → Popeye          : POST /scan       → findings + score
+     3. n8n → Dify-lite       : POST /v1/chat/completions → remediation runbook
+     4. Dify-lite → Ollama/stub: agent loop, tool_call back to the K8s API
      5. n8n → Slack            : POST /webhook/slack → card rendered
+     6. n8n → Remediation exec : POST /remediate → plan validated against the
+                                 allowlist, DRY_RUN=1, refused unless the scan
+                                 says data_source=live-cluster
 
-   End-to-end latency: ~23 ms  (stub backend)
-                       1.5–4 s with real Ollama + qwen2.5:0.5b
-                       2.1 s   with llama3.1:8b on GPU
+   End-to-end latency: ${AOPS_LAT}
 
-   WOW-factor moments in this demo:
-     • Animated data packet flowing PROM → N8N → POP → DIFY → OLL → SLK
-     • Real-time log stream during the alert firing
-     • Before/after SRE metrics dashboard (12.3% → 0.1% 5xx rate)
+   This run used fixtures and applied nothing. For a real cluster:
+     ./scripts/setup-kind-cluster.sh up  &&  ./scripts/verify-real-mode.sh
 
 RECAP
 

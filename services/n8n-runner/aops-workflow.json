@@ -1,4 +1,5 @@
 {
+  "id": "aopsRemediation1",
   "name": "A.O.P.S. — Real PaymentAPIHighErrorRate remediation",
   "active": true,
   "nodes": [
@@ -13,7 +14,10 @@
       "name": "Alertmanager Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [220, 220],
+      "position": [
+        220,
+        220
+      ],
       "webhookId": "aops-alert-webhook"
     },
     {
@@ -23,16 +27,24 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer aops-demo-token" }
+            {
+              "name": "Authorization",
+              "value": "Bearer aops-demo-token"
+            }
           ]
         },
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "2",
       "name": "Popeye Scan",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [440, 220]
+      "position": [
+        440,
+        220
+      ]
     },
     {
       "parameters": {
@@ -41,17 +53,28 @@
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "model", "value": "qwen2.5:0.5b" },
-            { "name": "messages", "value": "={[\n  { role: 'system', content: 'You are AURA-SRE, a senior SRE co-pilot. Use the Popeye JSON to produce a remediation runbook with: 1) root-cause hypothesis, 2) numbered remediation steps with kubectl commands, 3) risk/blast-radius notes, 4) suggested follow-up alerts. Use Markdown.' },\n  { role: 'user', content: JSON.stringify($json) }\n]}" }
+            {
+              "name": "model",
+              "value": "qwen2.5:0.5b"
+            },
+            {
+              "name": "messages",
+              "value": "={[\n  { role: 'system', content: 'You are AURA-SRE, a senior SRE co-pilot. Use the Popeye JSON to produce a remediation runbook with: 1) root-cause hypothesis, 2) numbered remediation steps with kubectl commands, 3) risk/blast-radius notes, 4) suggested follow-up alerts. Use Markdown.' },\n  { role: 'user', content: JSON.stringify($json) }\n]}"
+            }
           ]
         },
-        "options": { "timeout": 120000 }
+        "options": {
+          "timeout": 120000
+        }
       },
       "id": "3",
       "name": "Dify Agent Reasoning",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [660, 220]
+      "position": [
+        660,
+        220
+      ]
     },
     {
       "parameters": {
@@ -60,14 +83,46 @@
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "alert_name", "value": "={{$json.choices[0].message.content.match(/# A.O.P.S. Remediation Runbook/)?.[0] || 'PaymentAPIHighErrorRate'}}" },
-            { "name": "namespace", "value": "payment-prod" },
-            { "name": "severity", "value": "critical" },
-            { "name": "score", "value": "={{$node['Popeye Scan'].json.score}}" },
-            { "name": "grade", "value": "={{$node['Popeye Scan'].json.grade}}" },
-            { "name": "text", "value": "={{$json.choices[0].message.content}}" },
-            { "name": "trace", "value": "={{$json._dify_lite_trace}}" },
-            { "name": "duration_s", "value": "={{$json._dify_lite_duration_s}}" }
+            {
+              "name": "alert_name",
+              "value": "={{$json.choices[0].message.content.match(/# A.O.P.S. Remediation Runbook/)?.[0] || 'PaymentAPIHighErrorRate'}}"
+            },
+            {
+              "name": "namespace",
+              "value": "payment-prod"
+            },
+            {
+              "name": "severity",
+              "value": "critical"
+            },
+            {
+              "name": "score",
+              "value": "={{$node['Popeye Scan'].json.score}}"
+            },
+            {
+              "name": "grade",
+              "value": "={{$node['Popeye Scan'].json.grade}}"
+            },
+            {
+              "name": "data_source",
+              "value": "={{$node['Popeye Scan'].json.data_source}}"
+            },
+            {
+              "name": "engine",
+              "value": "={{$node['Popeye Scan'].json.engine}}"
+            },
+            {
+              "name": "text",
+              "value": "={{$json.choices[0].message.content}}"
+            },
+            {
+              "name": "trace",
+              "value": "={{$json._dify_lite_trace}}"
+            },
+            {
+              "name": "duration_s",
+              "value": "={{$json._dify_lite_duration_s}}"
+            }
           ]
         }
       },
@@ -75,7 +130,10 @@
       "name": "Post to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [880, 220]
+      "position": [
+        880,
+        220
+      ]
     },
     {
       "parameters": {
@@ -84,17 +142,32 @@
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "popeye_score", "value": "={{$node['Popeye Scan'].json.score}}" },
-            { "name": "runbook", "value": "={{$json.choices[0].message.content}}" }
+            {
+              "name": "popeye_score",
+              "value": "={{$node['Popeye Scan'].json.score}}"
+            },
+            {
+              "name": "runbook",
+              "value": "={{$json.choices[0].message.content}}"
+            },
+            {
+              "name": "plan",
+              "value": "={{$json._dify_lite_plan}}"
+            }
           ]
         },
-        "options": { "timeout": 300000 }
+        "options": {
+          "timeout": 300000
+        }
       },
       "id": "6",
       "name": "Execute Remediation",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [880, 400]
+      "position": [
+        880,
+        400
+      ]
     },
     {
       "parameters": {
@@ -105,24 +178,72 @@
       "name": "Respond to Alertmanager",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, 300]
+      "position": [
+        1100,
+        300
+      ]
     }
   ],
   "connections": {
     "Alertmanager Webhook": {
-      "main": [ [ { "node": "Popeye Scan", "type": "main", "index": 0 } ] ]
+      "main": [
+        [
+          {
+            "node": "Popeye Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Popeye Scan": {
-      "main": [ [ { "node": "Dify Agent Reasoning", "type": "main", "index": 0 } ] ]
+      "main": [
+        [
+          {
+            "node": "Dify Agent Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Dify Agent Reasoning": {
-      "main": [ [ { "node": "Post to Slack", "type": "main", "index": 0 }, { "node": "Execute Remediation", "type": "main", "index": 0 } ] ]
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute Remediation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Post to Slack": {
-      "main": [ [ { "node": "Respond to Alertmanager", "type": "main", "index": 0 } ] ]
+      "main": [
+        [
+          {
+            "node": "Respond to Alertmanager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Execute Remediation": {
-      "main": [ [ { "node": "Respond to Alertmanager", "type": "main", "index": 0 } ] ]
+      "main": [
+        [
+          {
+            "node": "Respond to Alertmanager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

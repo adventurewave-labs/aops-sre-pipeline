@@ -4,7 +4,7 @@
 #
 #   Real Prometheus (port 9090) + Alertmanager (port 9093)
 #        ↓ Alertmanager webhook
-#   Real n8n (port 5678)                [imports aops-workflow.json automatically]
+#   Real n8n (port 5678)                [workflow imported by the n8n-import step]
 #        ↓ HTTP POST
 #   Popeye scanner (port 8004)           [real Popeye binary, falls back to built-in]
 #        ↓ Popeye JSON
@@ -17,24 +17,27 @@
 #   Remediation executor (port 8005)    [applies real kubectl fixes, re-scans]
 #
 # MODES:
-#   docker compose up -d                          # Full real stack (needs kind cluster)
-#   AOPS_MODE=sandbox docker compose up -d        # Uses mock-k8s-api (no cluster needed)
-#   REAL_SLACK_WEBHOOK_URL=https://... docker compose up -d  # Real Slack
+#   docker compose --profile sandbox up -d        # fixtures only, no cluster needed
+#   docker compose -f docker-compose.yml -f docker-compose.real.yml up -d
+#                                                 # real mode: needs a kind cluster
+#                                                 # (run scripts/setup-kind-cluster.sh up first)
+#   REAL_SLACK_WEBHOOK_URL=https://... docker compose up -d  # real Slack
 #
-# The mock-k8s-api service is only used when AOPS_MODE=sandbox.
-# When AOPS_MODE=real (default), Popeye and the remediation executor
-# talk directly to a real Kubernetes cluster via kubeconfig.
+# The base file is sandbox-safe on purpose: it does not reference the external
+# `kind` docker network, so it comes up on a machine with no cluster at all.
+# docker-compose.real.yml is the overlay that joins the cluster network and
+# switches the scanner to live-cluster provenance.
+#
+# The mock-k8s-api service is only used when AOPS_MODE=sandbox, which is the
+# default here. Apply docker-compose.real.yml to switch Popeye and the
+# remediation executor to a real cluster via kubeconfig.
 
 services:
 
   # ------------------------------------------------------------------
-  # Option A: Real Kubernetes (default when AOPS_MODE=real)
-  # ------------------------------------------------------------------
-  # When using a real kind/minikube cluster, the K8s API is accessed
-  # via the host's kubeconfig. No mock-k8s-api is needed.
-
-  # ------------------------------------------------------------------
-  # Option B: Mock K8s API (when AOPS_MODE=sandbox)
+  # Mock K8s API — the sandbox fixture server (profile: sandbox).
+  # In real mode this service is not started; the scanner and the
+  # remediation executor read the cluster through the mounted kubeconfig.
   # ------------------------------------------------------------------
   mock-k8s-api:
     build: ./services/mock-k8s-api
@@ -70,10 +73,15 @@ services:
       # In sandbox mode, point at the mock K8s API
       MOCK_K8S_URL: "http://mock-k8s-api:8001"
       MOCK_K8S_TOKEN: "aops-demo-token"
-      # In real mode, mount the host kubeconfig
+      # Provenance switch — see services/popeye-scanner/scanner.py.
+      # sandbox = mock fixtures (labelled as such); real = live cluster.
+      AOPS_MODE: "${AOPS_MODE:-sandbox}"
       KUBECONFIG: "/root/.kube/config"
     volumes:
-      - ${KUBECONFIG_PATH:-~/.kube/config}:/root/.kube/config:ro
+      # MUST be the *internal* kubeconfig (server: https://<cluster>-control-plane:6443).
+      # scripts/setup-kind-cluster.sh writes it to .kubeconfig.internal — a host
+      # kubeconfig pointing at 127.0.0.1 resolves to this container, not the cluster.
+      - ${KUBECONFIG_PATH:-./.kubeconfig.internal}:/root/.kube/config:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/healthz')"]
       interval: 5s
@@ -166,13 +174,15 @@ services:
     networks: [aops-net]
 
   # ------------------------------------------------------------------
-  # Real n8n — workflow executor with auto-imported A.O.P.S. workflow
+  # Real n8n — workflow executor; the workflow is imported by n8n-import
   # ------------------------------------------------------------------
   n8n:
     image: n8nio/n8n:latest
     container_name: aops-n8n
     ports: ["5678:5678"]
     depends_on:
+      n8n-import:
+        condition: service_completed_successfully
       popeye-scanner:
         condition: service_healthy
       dify-lite:
@@ -184,8 +194,11 @@ services:
       N8N_PORT: "5678"
       N8N_PROTOCOL: "http"
       WEBHOOK_URL: "http://n8n:5678/"
-      # Auto-import the A.O.P.S. workflow on first boot
-      N8N_IMPORT_FILE: "/data/n8n-workflow.json"
+      N8N_SECURE_COOKIE: "false"
+      # NOTE: n8n has no import-on-boot environment variable. The workflow is
+      # imported and activated by the `n8n-import` one-shot service below,
+      # which runs `n8n import:workflow` against the shared /home/node/.n8n
+      # volume before n8n starts serving.
       # Environment variables the n8n workflow nodes will reference
       POPEYE_URL: "http://popeye-scanner:8004"
       DIFY_LITE_URL: "http://dify-lite:8002"
@@ -201,6 +214,32 @@ services:
       timeout: 5s
       retries: 12
     networks: [aops-net]
+
+  # ------------------------------------------------------------------
+  # One-shot: import + activate the A.O.P.S. workflow into real n8n.
+  #
+  # This is the step that makes the Alertmanager webhook resolve. Without it
+  # n8n boots with zero workflows and POST /webhook/aops-alert returns 404.
+  # ------------------------------------------------------------------
+  n8n-import:
+    image: n8nio/n8n:latest
+    container_name: aops-n8n-import
+    user: node
+    entrypoint: ["/bin/sh", "-c"]
+    # `update:workflow --all --active=true` is deprecated and a no-op on
+    # current n8n ("publishing via --all is no longer supported"), so the
+    # workflow imported but was never published and the webhook 404'd.
+    # Publish by id, falling back to the old flag for older n8n images.
+    command: >
+      "n8n import:workflow --input=/data/n8n-workflow.json &&
+       { n8n publish:workflow --id=aopsRemediation1 ||
+         n8n update:workflow --id=aopsRemediation1 --active=true; } &&
+       echo 'A.O.P.S. workflow imported and published'"
+    volumes:
+      - ./services/n8n-runner/aops-workflow.json:/data/n8n-workflow.json:ro
+      - n8n-data:/home/node/.n8n
+    networks: [aops-net]
+    restart: "no"
 
   # ------------------------------------------------------------------
   # Lightweight n8n-runner (Python fallback when real n8n is not desired)
@@ -276,10 +315,15 @@ services:
       REMEDIATION_HOST: "0.0.0.0"
       REMEDIATION_PORT: "8005"
       POPEYE_URL: "http://popeye-scanner:8004"
+      DIFY_LITE_URL: "http://dify-lite:8002"
       AOPS_NAMESPACE: "payment-prod"
-      DRY_RUN: "${DRY_RUN:-0}"
+      AOPS_SETTLE_SECONDS: "${AOPS_SETTLE_SECONDS:-5}"
+      # Dry by default. Set DRY_RUN=0 deliberately to let it mutate a cluster;
+      # even then it refuses to act on a report whose data_source is not
+      # "live-cluster".
+      DRY_RUN: "${DRY_RUN:-1}"
     volumes:
-      - ${KUBECONFIG_PATH:-~/.kube/config}:/root/.kube/config:ro
+      - ${KUBECONFIG_PATH:-./.kubeconfig.internal}:/root/.kube/config:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/healthz')"]
       interval: 5s

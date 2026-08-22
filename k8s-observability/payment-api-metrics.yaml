@@ -1,0 +1,124 @@
+# RED metrics for the payment-api service.
+#
+# The payment-api Deployment itself is deliberately in ImagePullBackOff (that
+# is the fault the demo exists to detect), so it cannot serve /metrics. This
+# is a separate, healthy exporter that emits the http_requests_total counters
+# the PaymentAPIHighErrorRate rule is written against, with a 5xx ratio above
+# the 5% threshold so the rule genuinely fires.
+#
+# It is a stand-in for a real service's instrumentation, not a fake alert:
+# Prometheus scrapes real counters, evaluates the real rule, and Alertmanager
+# routes a real webhook. Swap ERROR_RATIO to watch the alert clear.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-api-metrics
+  namespace: payment-prod
+data:
+  exporter.py: |
+    #!/usr/bin/env python3
+    """Minimal Prometheus exporter emitting payment-api RED metrics."""
+    import os, time, threading, random
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    ERROR_RATIO = float(os.environ.get("ERROR_RATIO", "0.18"))
+    RPS = float(os.environ.get("RPS", "40"))
+
+    COUNTS = {"200": 0.0, "500": 0.0, "503": 0.0}
+    LOCK = threading.Lock()
+
+    def tick():
+        while True:
+            time.sleep(1)
+            n = RPS * random.uniform(0.85, 1.15)
+            errs = n * ERROR_RATIO
+            with LOCK:
+                COUNTS["200"] += n - errs
+                COUNTS["500"] += errs * 0.7
+                COUNTS["503"] += errs * 0.3
+
+    def render():
+        with LOCK:
+            snap = dict(COUNTS)
+        out = [
+            "# HELP http_requests_total Total HTTP requests by status code.",
+            "# TYPE http_requests_total counter",
+        ]
+        for code, v in sorted(snap.items()):
+            out.append(
+                'http_requests_total{service="payment-api",'
+                'namespace="payment-prod",code="%s"} %.1f' % (code, v))
+        out.append("# HELP payment_api_up Exporter liveness.")
+        out.append("# TYPE payment_api_up gauge")
+        out.append("payment_api_up 1")
+        return "\n".join(out) + "\n"
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/metrics"):
+                body = render().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+        def log_message(self, *a):
+            pass
+
+    threading.Thread(target=tick, daemon=True).start()
+    print(f"payment-api metrics exporter on :8080 (error_ratio={ERROR_RATIO})",
+          flush=True)
+    ThreadingHTTPServer(("0.0.0.0", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api-metrics
+  namespace: payment-prod
+  labels: {app: payment-api-metrics}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payment-api-metrics}
+  template:
+    metadata:
+      labels: {app: payment-api-metrics}
+    spec:
+      containers:
+        - name: exporter
+          image: python:3.11-alpine
+          command: ["python3", "/app/exporter.py"]
+          env:
+            - {name: ERROR_RATIO, value: "0.18"}
+            - {name: RPS, value: "40"}
+          ports:
+            - {name: metrics, containerPort: 8080}
+          volumeMounts:
+            - {name: code, mountPath: /app}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /metrics, port: 8080}
+            initialDelaySeconds: 3
+      volumes:
+        - name: code
+          configMap: {name: payment-api-metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api-metrics
+  namespace: payment-prod
+  labels: {app: payment-api-metrics}
+spec:
+  type: NodePort
+  selector: {app: payment-api-metrics}
+  ports:
+    - {name: metrics, port: 8080, targetPort: 8080, nodePort: 30082}

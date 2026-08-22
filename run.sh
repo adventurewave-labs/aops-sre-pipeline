@@ -13,7 +13,7 @@
 #   ./run.sh restart         — stop + up
 #
 # Environment (or .env file):
-#   AOPS_MODE        real|sandbox (default: real)
+#   AOPS_MODE        real|sandbox (default: sandbox)
 #   OLLAMA_MODEL     qwen2.5:0.5b|llama3.1:8b
 #   DRY_RUN          0|1
 
@@ -100,6 +100,12 @@ cmd_up_sandbox() {
   echo "=== A.O.P.S. stack — SANDBOX mode ==="
   echo ""
 
+  # Sandbox reads fixtures, never a cluster. Reports are labelled
+  # data_source=fixtures and the executor runs dry — nothing can mutate.
+  export AOPS_MODE=sandbox
+  export DRY_RUN=1
+  export AOPS_SETTLE_SECONDS=0
+
   start_svc mock-k8s-api   "$AOPS_ROOT/services/mock-k8s-api/app.py"        8001
   wait_healthy mock-k8s-api 8001 || return 1
 
@@ -116,6 +122,9 @@ cmd_up_sandbox() {
 
   start_svc n8n-runner     "$AOPS_ROOT/services/n8n-runner/app.py"        5678
   wait_healthy n8n-runner 5678 || return 1
+
+  start_svc remediation-executor "$AOPS_ROOT/services/remediation-executor/app.py" 8005
+  wait_healthy remediation-executor 8005 || return 1
 
   _print_endpoints "sandbox"
 }
@@ -134,7 +143,8 @@ cmd_up_real() {
   echo "  Connected to real K8s cluster"
   echo ""
 
-  export POPEYE_MODE=real
+  export AOPS_MODE=real
+  export POPEYE_MODE="${POPEYE_MODE:-real}"
   start_svc popeye-scanner "$AOPS_ROOT/services/popeye-scanner/app.py"      8004
   wait_healthy popeye-scanner 8004 || return 1
 
@@ -160,14 +170,14 @@ _print_endpoints() {
   echo "All services up ($mode mode). Endpoints:"
   if [[ "$mode" == "sandbox" ]]; then
     echo "  mock-k8s-api         http://localhost:8001  (mock Kubernetes API)"
+    echo "  popeye-scanner       http://localhost:8004  (engine: builtin, data: fixtures)"
+  else
+    echo "  popeye-scanner       http://localhost:8004  (engine: $POPEYE_MODE, data: live-cluster)"
   fi
-  echo "  popeye-scanner       http://localhost:8004  (Popeye: $POPEYE_MODE)"
   echo "  dify-lite            http://localhost:8002  (LLM backend: $AOPS_LLM_BACKEND)"
   echo "  slack-receiver       http://localhost:8003  (Slack card viewer)"
   echo "  n8n-runner           http://localhost:5678  (webhook + workflow)"
-  if [[ "$mode" == "real" ]]; then
-    echo "  remediation-executor http://localhost:8005  (kubectl fix executor)"
-  fi
+  echo "  remediation-exec     http://localhost:8005  (dry_run=${DRY_RUN:-1})"
   echo ""
   echo "Fire an alert:       $0 alert"
   echo "Run remediation:      $0 remediate"
@@ -253,23 +263,26 @@ cmd_stop() {
 
 case "${1:-up}" in
   up)          cmd_up_${AOPS_MODE:-sandbox} ;;
- up-sandbox)  AOPS_MODE=sandbox cmd_up_sandbox ;;
+ up-sandbox|up-no-ollama)  AOPS_MODE=sandbox cmd_up_sandbox ;;
  up-real)     AOPS_MODE=real cmd_up_real ;;
  status)      cmd_status ;;
  alert)       cmd_alert ;;
  remediate)   cmd_remediate ;;
+ demo)        exec "$AOPS_ROOT/scripts/demo_script.sh" ;;
  logs)        shift; cmd_logs "$@" ;;
  stop)        cmd_stop ;;
  restart)     cmd_stop; sleep 1; exec "$0" up ;;
  *)
-    echo "Usage: $0 {up|up-sandbox|up-real|status|alert|remediate|logs [svc]|stop|restart}"
+    echo "Usage: $0 {up|up-sandbox|up-no-ollama|up-real|status|alert|remediate|demo|logs [svc]|stop|restart}"
     echo ""
     echo "  up            Start services (respects AOPS_MODE env var)"
     echo "  up-sandbox    Force sandbox mode (mock K8s API, no cluster)"
+    echo "  up-no-ollama  Alias for up-sandbox (kept for docs/demo compatibility)"
     echo "  up-real       Force real mode (needs kind cluster + broken resources)"
     echo "  status        Show services + health probes"
     echo "  alert         Fire the PaymentAPIHighErrorRate alert"
-    echo "  remediate     Run real remediation with before/after comparison"
+    echo "  remediate     Run remediation with before/after comparison"
+    echo "  demo          Run the scripted end-to-end demo (asciinema-friendly)"
     echo "  logs [svc]    Tail logs (default: all services)"
     echo "  stop          Stop everything"
     echo "  restart       Stop + up"

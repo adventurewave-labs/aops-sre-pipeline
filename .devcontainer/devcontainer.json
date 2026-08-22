@@ -1,9 +1,9 @@
 {
   "name": "A.O.P.S. SRE Pipeline",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "dockerDashComposeVersion": "v2.24.0"
+      "dockerDashComposeVersion": "v2"
     }
   },
   "forwardPorts": [
@@ -12,6 +12,7 @@
     8002,
     8003,
     8004,
+    8005,
     11434
   ],
   "portsAttributes": {
@@ -33,9 +34,12 @@
     },
     "11434": {
       "label": "Ollama LLM"
+    },
+    "8005": {
+      "label": "Remediation Executor (dry-run)"
     }
   },
-  "postCreateCommand": "chmod +x run.sh services/prometheus-mock/alert.sh && ./run.sh up-no-ollama && echo '' && echo '========================================' && echo '  A.O.P.S. stack is LIVE in Codespace!' && echo '========================================' && echo '' && echo 'Ports:' && echo '  Mock Slack UI .... http://localhost:8003' && echo '  n8n Runner ...... http://localhost:5678' && echo '  Mock K8s API .... http://localhost:8001' && echo '  Popeye Scanner .. http://localhost:8004' && echo '  Dify-lite Agent . http://localhost:8002' && echo '' && echo 'Fire an alert:' && echo '  ./run.sh alert' && echo '  ./run.sh status' && echo ''",
+  "postCreateCommand": "chmod +x run.sh scripts/*.sh services/prometheus-mock/alert.sh 2>/dev/null || true; printf '%s\\n' '========================================' '  A.O.P.S. Codespace ready - nothing started yet' '========================================' '' 'Sandbox (six local Python services against fixtures, ~2s):' '  ./run.sh up-sandbox' '' 'Then:' '  ./run.sh alert    # fire an alert through the pipeline' '  ./run.sh status   # service health' '  ./run.sh demo     # scripted walkthrough' '  ./run.sh stop     # tear down' '' 'Real mode (Docker + kind) is documented in the README.' ''",
   "customizations": {
     "vscode": {
       "extensions": [
