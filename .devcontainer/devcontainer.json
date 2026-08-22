@@ -39,7 +39,7 @@
       "label": "Remediation Executor (dry-run)"
     }
   },
-  "postCreateCommand": "chmod +x run.sh scripts/*.sh services/prometheus-mock/alert.sh 2>/dev/null || true; printf '%s\\n' '========================================' '  A.O.P.S. Codespace ready - stack NOT started' '========================================' '' 'Build and start the sandbox stack (~3-5 min, builds 6 images):' '  ./run.sh up-sandbox' '' 'Then:' '  ./run.sh alert    # fire an alert through the pipeline' '  ./run.sh status   # service health' '  ./run.sh demo     # scripted walkthrough' '  ./run.sh stop     # tear down' '' 'Ports forward automatically once the stack is up.' ''",
+  "postCreateCommand": "chmod +x run.sh scripts/*.sh services/prometheus-mock/alert.sh 2>/dev/null || true; printf '%s\\n' '========================================' '  A.O.P.S. Codespace ready - nothing started yet' '========================================' '' 'Sandbox (six local Python services against fixtures, ~2s):' '  ./run.sh up-sandbox' '' 'Then:' '  ./run.sh alert    # fire an alert through the pipeline' '  ./run.sh status   # service health' '  ./run.sh demo     # scripted walkthrough' '  ./run.sh stop     # tear down' '' 'Real mode (Docker + kind) is documented in the README.' ''",
   "customizations": {
     "vscode": {
       "extensions": [
