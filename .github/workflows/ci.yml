@@ -124,7 +124,7 @@ jobs:
       - name: Assert the badge numbers the README claims
         run: |
           python3 - <<'PY'
-          import json, re, sys
+          import json, pathlib, re, sys
           res = json.load(open("var/uat-results.json"))
           readme = open("README.md").read()
           claimed = re.search(r"UAT-(\d+)%2F(\d+)", readme)
@@ -177,6 +177,27 @@ jobs:
               print(f"scripts/demo_script.sh hardcodes a latency: {hardcoded}")
               sys.exit(1)
           print("demo script hardcodes no latency")
+
+          # The landing page carries its own hand-maintained copy of the suite.
+          # Only the README was gated, so the page drifted: it advertised 15/15
+          # in one place, 14/14 in three others, listed ten of fifteen tests,
+          # and still described a workflow node count that had since changed.
+          # Gate it on the suite the same way.
+          site = pathlib.Path("site/index.html")
+          if site.exists():
+              page = site.read_text()
+              ids = re.findall(r'record\("(T\d\d)"', open("scripts/run_uat.py").read())
+              missing = [t for t in ids if f">{t}<" not in page]
+              if missing:
+                  print(f"site/index.html is missing test rows: {missing}")
+                  sys.exit(1)
+              claimed = {(int(a), int(b)) for a, b in re.findall(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b", page)}
+              wrong = {c for c in claimed if c != (res["passed"], res["total"])}
+              if wrong:
+                  print(f"site/index.html claims {sorted(wrong)}, suite reports "
+                        f"{(res['passed'], res['total'])}")
+                  sys.exit(1)
+              print(f"landing page lists all {len(ids)} tests and agrees with the suite")
           PY
 
       - name: Service logs on failure

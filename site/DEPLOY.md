@@ -1,7 +1,7 @@
 # Deploying the A.O.P.S. landing page to Vercel
 
 The `site/` directory contains a single-file static landing page for the A.O.P.S.
-project. The page is ~25 KB of HTML with embedded CSS/JS and a 1.4 MB demo GIF.
+project. The page is ~46 KB of HTML with embedded CSS/JS and a 3.0 MB demo GIF.
 
 ## Option A — Vercel CLI (one-shot)
 
@@ -34,9 +34,9 @@ This clones the repo into your GitHub and deploys it to your Vercel account in o
 
 | Path | Asset | Size |
 |---|---|---|
-| `/` | `site/index.html` | ~25 KB |
-| `/aops-demo.gif` | the 9-second asciinema GIF | 1.4 MB |
-| `/aops-demo-poster.png` | static poster frame (OG image) | 135 KB |
+| `/` | `site/index.html` | ~46 KB |
+| `/aops-demo.gif` | the 35-second asciinema GIF | 3.0 MB |
+| `/aops-demo-poster.png` | static poster frame (OG image) | 121 KB |
 
 ## Custom domain
 
