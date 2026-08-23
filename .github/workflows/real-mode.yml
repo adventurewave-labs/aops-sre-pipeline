@@ -1,0 +1,193 @@
+# Real-mode end-to-end CI.
+#
+# ci.yml verifies the sandbox pipeline: fixtures in, 15 UAT tests, six image
+# builds, both compose configs. What it cannot verify is the claim this repo
+# actually makes -- that A.O.P.S. reads a LIVE cluster. That path (kind +
+# kube-state-metrics + real Popeye + real n8n + Prometheus) was only ever
+# proven by a human running ./scripts/verify-real-mode.sh on their laptop,
+# which means it was one silent dependency bump away from rotting unnoticed.
+#
+# This workflow runs the exact four commands the README tells a reader to run,
+# in that order, on a clean runner. It shares no steps with ci.yml and cannot
+# affect it.
+name: real-mode-e2e
+
+on:
+  schedule:
+    # Mondays 06:17 UTC. Off-the-hour on purpose: :00 is the busiest minute on
+    # GitHub's scheduler and cron jobs there get queued or dropped.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    # Only for changes that can actually break real mode. A docs or site PR
+    # must not wait ~20 minutes for a cluster.
+    paths:
+      - ".github/workflows/real-mode.yml"
+      - "docker-compose.yml"
+      - "docker-compose.real.yml"
+      - "scripts/setup-kind-cluster.sh"
+      - "scripts/verify-real-mode.sh"
+      - "k8s-manifests/**"
+      - "k8s-observability/**"
+      - "services/popeye-scanner/**"
+      - "services/remediation-executor/**"
+      - "services/prometheus-alertmanager/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-mode-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.23.0
+  CLUSTER_NAME: aops-demo
+  KUBECONFIG_PATH: ${{ github.workspace }}/.kubeconfig.internal
+
+jobs:
+  kind-e2e:
+    name: kind cluster + live-cluster stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reclaim runner disk
+        run: |
+          set -euo pipefail
+          # A 3-node kind image, n8n, ollama, prometheus and five built images
+          # land on a 14 GB disk. The preinstalled toolchains below are ~20 GB
+          # this job never touches.
+          echo "avail before: $(df -BG --output=avail / | tail -1 | tr -d ' ')"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          echo "avail after:  $(df -BG --output=avail / | tail -1 | tr -d ' ')"
+
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version
+          kubectl version --client
+
+      # Step 1 of the README's real-mode block. Creates the cluster, deploys the
+      # broken resources, kube-state-metrics and the RED-metrics exporter, and
+      # ends with its own wiring self-check.
+      - name: setup-kind-cluster.sh up
+        run: ./scripts/setup-kind-cluster.sh up
+
+      # Steps 2 and 3. KUBECONFIG_PATH is set job-wide so the containers get the
+      # container-facing kubeconfig, not the 127.0.0.1 one.
+      - name: docker compose up (real overlay, monitoring profile)
+        run: |
+          set -euo pipefail
+          grep -q 'server: https://'"${CLUSTER_NAME}"'-control-plane:6443' "$KUBECONFIG_PATH" \
+            || { echo "internal kubeconfig is not container-facing"; exit 1; }
+          docker compose -f docker-compose.yml -f docker-compose.real.yml \
+                         --profile monitoring up -d --build
+
+      - name: Wait for the stack to answer
+        run: |
+          set -uo pipefail
+          # 127.0.0.1, not localhost. On the first CI run every host-side probe
+          # to localhost:8004 was reset for seven straight minutes while the
+          # container sat Up and *healthy* -- and "healthy" only proves the
+          # server is listening INSIDE the container, never that the published
+          # port is reachable from the host. The services bind IPv4; `localhost`
+          # resolves to ::1 first, and the containers the real overlay joins to
+          # kind's network also publish on [::]. Probe the address the service
+          # actually listens on, and dump the evidence either way so the next
+          # failure is diagnosable from the log alone.
+          echo "::group::network evidence"
+          docker network inspect kind \
+            -f 'kind: EnableIPv6={{.EnableIPv6}} IPAM={{json .IPAM.Config}}' || true
+          docker inspect aops-popeye-scanner \
+            -f 'popeye-scanner networks: {{json .NetworkSettings.Networks}}' || true
+          for fam in -4 -6; do
+            printf '  curl %s localhost:8004/healthz  -> %s\n' "$fam" \
+              "$(curl "$fam" -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                 http://localhost:8004/healthz 2>&1 || echo unreachable)"
+          done
+          echo "::endgroup::"
+          # Poll rather than sleep: on a cold runner the image builds and the
+          # n8n import make startup time wildly variable.
+          wait_for() {
+            local label="$1" url="$2" deadline=$((SECONDS + 420))
+            until curl -4 -fsS -o /dev/null --max-time 5 "$url"; do
+              if (( SECONDS > deadline )); then
+                echo "::error::$label never answered at $url"
+                return 1
+              fi
+              sleep 5
+            done
+            echo "  up: $label"
+          }
+          wait_for "popeye-scanner" http://127.0.0.1:8004/healthz
+          wait_for "remediation-executor" http://127.0.0.1:8005/healthz
+          wait_for "slack-receiver" http://127.0.0.1:8003/healthz
+          wait_for "prometheus" http://127.0.0.1:9090/-/ready
+          wait_for "alertmanager" http://127.0.0.1:9093/-/ready
+          # n8n answers /healthz before its webhook is registered; the verifier
+          # asserts the webhook itself, so only wait for the process here.
+          wait_for "n8n" http://127.0.0.1:5678/healthz
+
+      - name: Wait for an alert to fire
+        # Soft: the verifier already SKIPs (not fails) when nothing is firing.
+        # This step exists so the scheduled run actually exercises the rule
+        # evaluation path instead of skipping past it every week. The fastest
+        # rule is DeploymentUnhealthy at `for: 3m`.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # GitHub runs this with `bash -e`, which `set -uo pipefail` does not
+          # undo. Without the `|| state=""` below, grep finding no alerts yet --
+          # the normal state on the first poll -- exits 1, pipefail propagates
+          # it, and errexit kills the step before it has waited a single second.
+          # That is exactly the bug this repo already fixed once, in
+          # setup-kind-cluster.sh: the success path was the failure path.
+          # A PR should not sit for six minutes; the weekly run should.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            budget=210
+          else
+            budget=420
+          fi
+          deadline=$((SECONDS + budget))
+          while (( SECONDS < deadline )); do
+            state=$(curl -4 -fsS http://127.0.0.1:9090/api/v1/alerts 2>/dev/null \
+                    | grep -o '"state":"[a-z]*"' | sort -u | tr '\n' ' ') || state=""
+            echo "  t+${SECONDS}s alerts: ${state:-none}"
+            case "$state" in *firing*) echo "  an alert is firing"; exit 0 ;; esac
+            sleep 20
+          done
+          echo "  no alert fired within ${budget}s -- the verifier will SKIP that check"
+
+      # Step 4. This is the gate.
+      - name: verify-real-mode.sh
+        run: ./scripts/verify-real-mode.sh
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          set -uo pipefail
+          echo "::group::disk"; df -h /; docker system df; echo "::endgroup::"
+          echo "::group::compose ps"; docker compose ps -a; echo "::endgroup::"
+          echo "::group::cluster"; kubectl get nodes -o wide; kubectl get pods -A; echo "::endgroup::"
+          for svc in popeye-scanner remediation-executor n8n n8n-import prometheus alertmanager dify-lite slack-receiver; do
+            echo "::group::logs $svc"
+            docker compose logs --tail=120 "$svc" 2>&1 || true
+            echo "::endgroup::"
+          done
+          echo "::group::prometheus targets"
+          curl -4 -fsS 'http://127.0.0.1:9090/api/v1/targets?state=active' || true
+          echo "::endgroup::"
+
+      - name: Tear down
+        if: always()
+        run: |
+          set -uo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.real.yml \
+                         --profile monitoring down -v --remove-orphans || true
+          kind delete cluster --name "$CLUSTER_NAME" || true
