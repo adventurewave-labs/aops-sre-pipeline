@@ -40,6 +40,12 @@ check "internal kubeconfig is container-facing (not 127.0.0.1)" \
 check "broken resources deployed" \
   bash -c "kubectl -n payment-prod get deploy payment-api payment-worker >/dev/null"
 
+# Host-side probes use 127.0.0.1, never localhost. CI caught the difference:
+# with the containers joined to kind's network, every curl to localhost:8004 was
+# reset for seven minutes while the container was Up and healthy -- a healthcheck
+# runs inside the container and says nothing about whether the published port is
+# reachable. These services bind IPv4; localhost resolves to ::1 first.
+
 echo -e "\n${BOLD}2. Container -> cluster reachability (D4)${RST}"
 check "popeye-scanner can reach the cluster" \
   bash -c "docker compose exec -T popeye-scanner kubectl get nodes >/dev/null"
@@ -48,21 +54,21 @@ check "remediation-executor can reach the cluster" \
 
 echo -e "\n${BOLD}3. Scanner provenance (D2)${RST}"
 check "scanner reports data_source=live-cluster" \
-  bash -c "curl -fsS -XPOST 'http://localhost:8004/scan?namespace=payment-prod' | grep -q '\"data_source\": \"live-cluster\"'"
+  bash -c "curl -fsS -XPOST 'http://127.0.0.1:8004/scan?namespace=payment-prod' | grep -q '\"data_source\": \"live-cluster\"'"
 check "scanner healthz reports cluster_reachable=true" \
-  bash -c "curl -fsS http://localhost:8004/healthz | grep -q '\"cluster_reachable\": true'"
+  bash -c "curl -fsS http://127.0.0.1:8004/healthz | grep -q '\"cluster_reachable\": true'"
 check "real Popeye binary present in the scanner image (D1)" \
   bash -c "docker compose exec -T popeye-scanner popeye version >/dev/null"
 
 echo -e "\n${BOLD}4. Prometheus has real series (D5)${RST}"
 check "kube-state-metrics target is UP" \
-  bash -c "curl -fsS 'http://localhost:9090/api/v1/targets?state=active' | grep -q 'kube-state-metrics'"
+  bash -c "curl -fsS 'http://127.0.0.1:9090/api/v1/targets?state=active' | grep -q 'kube-state-metrics'"
 check "kube_pod_container_status_restarts_total has samples" \
-  bash -c "curl -fsS --get 'http://localhost:9090/api/v1/query' --data-urlencode 'query=count(kube_pod_container_status_restarts_total)' | grep -q '\"value\"'"
+  bash -c "curl -fsS --get 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=count(kube_pod_container_status_restarts_total)' | grep -q '\"value\"'"
 check "http_requests_total has samples" \
-  bash -c "curl -fsS --get 'http://localhost:9090/api/v1/query' --data-urlencode 'query=count(http_requests_total)' | grep -q '\"value\"'"
+  bash -c "curl -fsS --get 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=count(http_requests_total)' | grep -q '\"value\"'"
 check "alert rules are loaded" \
-  bash -c "curl -fsS http://localhost:9090/api/v1/rules | grep -q PaymentAPIHighErrorRate"
+  bash -c "curl -fsS http://127.0.0.1:9090/api/v1/rules | grep -q PaymentAPIHighErrorRate"
 
 echo -e "\n${BOLD}5. n8n workflow import (D6)${RST}"
 check "n8n has the A.O.P.S. workflow" \
@@ -71,15 +77,15 @@ check "n8n has the A.O.P.S. workflow" \
 # therefore PASSES when n8n is dead, which is the exact opposite of what this
 # script exists to do. Require a real HTTP response as well.
 check "webhook /webhook/aops-alert resolves (n8n answered, not 404)" \
-  bash -c "code=\$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://localhost:5678/webhook/aops-alert -H 'Content-Type: application/json' -d '{}'); test \"\$code\" != 000 && test \"\$code\" != 404"
+  bash -c "code=\$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:5678/webhook/aops-alert -H 'Content-Type: application/json' -d '{}'); test \"\$code\" != 000 && test \"\$code\" != 404"
 
 echo -e "\n${BOLD}6. Alerting path${RST}"
 echo -e "  ${YEL}note${RST} PaymentAPIHighErrorRate has 'for: 5m' — allow 5-6 minutes"
 echo -e "       after the exporter starts before expecting it to fire."
-if curl -fsS http://localhost:9090/api/v1/alerts 2>/dev/null | grep -q '"state":"firing"'; then
+if curl -fsS http://127.0.0.1:9090/api/v1/alerts 2>/dev/null | grep -q '"state":"firing"'; then
   echo -e "  ${GREEN}[PASS]${RST} at least one alert is firing"
   PASS=$((PASS+1))
-elif curl -fsS http://localhost:9090/api/v1/alerts 2>/dev/null | grep -q '"state":"pending"'; then
+elif curl -fsS http://127.0.0.1:9090/api/v1/alerts 2>/dev/null | grep -q '"state":"pending"'; then
   skip "alert is pending (waiting out 'for:') — re-run in a few minutes"
 else
   skip "no alert firing yet — re-run in a few minutes"

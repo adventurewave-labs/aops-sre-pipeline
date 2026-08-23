@@ -44,7 +44,7 @@ This is the most important thing to understand about A.O.P.S., so it is the firs
 | Every report labelled | `"data_source": "fixtures"` | `"data_source": "live-cluster"` |
 | Needs | Python 3.11 | Docker, kind, kubectl |
 | Remediation | dry-run only | real `kubectl`, still dry by default |
-| Verified by | CI on every push | `./scripts/verify-real-mode.sh` |
+| Verified by | CI on every push (`ci.yml`) | CI weekly and on real-mode PRs (`real-mode.yml`), on a live kind cluster |
 
 **The scanner never degrades from one to the other.** If `AOPS_MODE=real` and the cluster is unreachable, `/scan` returns **503** with the reason. It does not fall back to fixtures and label them as real — a report that might be acted on has to be honest about what it describes. The remediation executor enforces the same rule from the other side: it refuses to apply real changes on the strength of a report whose `data_source` is not `live-cluster`.
 
@@ -207,6 +207,7 @@ CI runs all of it on every push, builds all six images, validates both compose f
 ```
 aops-sre-pipeline/
 ├── .github/workflows/ci.yml         # static + unit + sandbox + image + compose gates
+├── .github/workflows/real-mode.yml  # weekly kind-cluster end-to-end gate
 ├── docker-compose.yml               # sandbox-safe base (no cluster required)
 ├── docker-compose.real.yml          # real-mode overlay: kind network, live provenance
 ├── run.sh                           # sandbox orchestrator
@@ -252,7 +253,7 @@ aops-sre-pipeline/
 
 Stated plainly, because the point of the provenance work above is that you can trust what this file says.
 
-- **Real mode is implemented and self-checking, but the end-to-end run is verified by `scripts/verify-real-mode.sh` on your machine, not by CI.** CI has no cluster: it verifies the sandbox pipeline, all six image builds, and both compose configurations. If you are evaluating this repo, run that script — it checks each link and names the one that breaks.
+- **Real mode is verified against a live cluster by CI, but not on every push.** `.github/workflows/real-mode.yml` runs the four commands in [Real mode](#real-mode--docker--a-kind-cluster) above on a clean runner — create the kind cluster, bring the stack up against it, wait for a rule to fire, then gate on `scripts/verify-real-mode.sh` — weekly and on any PR touching the real-mode path. A cluster run costs ~20 minutes, so ordinary pushes are covered by `ci.yml` (sandbox pipeline, all six image builds, both compose configurations) and nothing else. Between weekly runs, the freshest evidence is your own: run that script — it checks each link and names the one that breaks.
 - The built-in analyzers cover 14 codes (Node, Deployment, Pod, Ingress, Service, PVC). The real Popeye binary provides 100+.
 - The remediation allowlist has five verbs, matching the demo's six broken resources. Extending it means adding a handler here — deliberately, not by widening a wildcard.
 - `inspect-nodes` reports DiskPressure rather than clearing it; freeing disk on a node needs host access A.O.P.S. does not have.
