@@ -75,7 +75,7 @@ cd aops-sre-pipeline
 
 ./run.sh up-sandbox          # all services as plain Python processes
 ./run.sh alert               # fire the PaymentAPIHighErrorRate alert
-./run.sh status              # services + health probes
+./run.sh status               # services + health probes
 open http://localhost:8003   # the rendered Slack card
 
 ./run.sh remediate           # plan-driven remediation (dry-run)
@@ -188,7 +188,7 @@ python3 tests/test_remediation_allowlist.py
 # Sandbox integration
 ./run.sh up-sandbox
 python3 scripts/smoke_test.py     # component smoke test
-python3 scripts/run_uat.py        # 14-test acceptance matrix
+python3 scripts/run_uat.py        # 15-test acceptance matrix
 ./run.sh demo                     # scripted end-to-end demo
 
 # Real mode — checks each link and names the broken one
