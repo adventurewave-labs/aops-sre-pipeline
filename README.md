@@ -228,7 +228,7 @@ aops-sre-pipeline/
 │   ├── setup-kind-cluster.sh        # cluster + observability + wiring self-check
 │   ├── verify-real-mode.sh          # end-to-end real-mode verification
 │   ├── smoke_test.py                # component smoke test
-│   ├── run_uat.py                   # 14-test acceptance matrix
+│   ├── run_uat.py                   # 15-test acceptance matrix
 │   └── demo_script.sh               # scripted demo
 ├── tests/
 │   ├── test_popeye_parser.py        # real-Popeye schema, fixtures from upstream
