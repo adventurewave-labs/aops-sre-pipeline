@@ -461,6 +461,296 @@
       border: 1px solid var(--border);
     }
 
+    /* ============ LIVE TRIGGER (Touchpoint 1 — PRD §3.3) ============ */
+    .btn-trigger {
+      position: relative;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 12px 22px; border-radius: 8px;
+      font-size: 14px; font-weight: 700; font-family: var(--sans);
+      background: linear-gradient(120deg, var(--accent), var(--accent-3));
+      color: white;
+      box-shadow: 0 8px 24px -8px rgba(124,92,255,0.55),
+                  0 0 0 1px rgba(124,92,255,0.4) inset;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.2s ease, filter 0.15s;
+      border: none;
+    }
+    .btn-trigger:hover:not(:disabled) {
+      transform: scale(1.02);
+      box-shadow: 0 14px 36px -8px rgba(124,92,255,0.7),
+                  0 0 0 1px rgba(124,92,255,0.6) inset;
+    }
+    .btn-trigger:active:not(:disabled) { transform: scale(0.99); }
+    .btn-trigger:disabled { cursor: not-allowed; opacity: 0.85; filter: saturate(0.7); }
+    .btn-trigger .spin {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: white;
+      animation: aops-spin 0.8s linear infinite;
+    }
+    .btn-trigger .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 0 rgba(255,255,255,0.7);
+      animation: aops-pulse 1.6s infinite;
+    }
+    @keyframes aops-spin { to { transform: rotate(360deg); } }
+    @keyframes aops-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.6); }
+      70%  { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+      100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+    }
+
+    /* Live-trigger section */
+    .live-trigger {
+      max-width: 1100px; margin: 0 auto;
+      padding: 0 0 40px;
+    }
+    .live-trigger[hidden] { display: none; }
+    .live-trigger .lead-row {
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap; margin-bottom: 20px;
+    }
+    .live-trigger .lead-row h2 {
+      margin: 0; text-align: left; font-size: 24px;
+    }
+    .live-trigger .lead-row .cached-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 99px;
+      background: rgba(251,191,36,0.12);
+      border: 1px solid rgba(251,191,36,0.4);
+      font-family: var(--mono); font-size: 11px; color: var(--warn);
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .live-trigger .lead-row .cached-pill[hidden] { display: none; }
+
+    /* Terminal panel — PRD §3.3.2 */
+    .terminal-panel {
+      background: #1E1E2E;
+      border: 1px solid #2c2f44;
+      border-radius: 10px; overflow: hidden;
+      font-family: var(--mono);
+      box-shadow: 0 30px 80px -20px rgba(0,0,0,0.6),
+                  0 0 0 1px rgba(124,92,255,0.08);
+    }
+    .terminal-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; background: #181825;
+      border-bottom: 1px solid #2c2f44;
+      font-size: 12px; color: #a6adcff;
+    }
+    .terminal-bar .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .terminal-bar .dot.r { background: #f38ba8; }
+    .terminal-bar .dot.y { background: #f9e2af; }
+    .terminal-bar .dot.g { background: #a6e3a1; }
+    .terminal-bar .title { flex: 1; text-align: center; }
+    .terminal-bar .run-id {
+      color: #6c7086; font-size: 11px;
+    }
+    .terminal-body {
+      padding: 16px 18px;
+      min-height: 220px; max-height: 460px;
+      overflow-y: auto;
+      font-size: 12.5px; line-height: 1.65;
+    }
+    .terminal-body .line {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 4px 0;
+      opacity: 0;
+      animation: aops-line-in 0.22s ease-out forwards;
+    }
+    @keyframes aops-line-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .terminal-body .line .icon {
+      flex-shrink: 0; width: 18px; height: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 4px; font-size: 11px; font-weight: 700;
+      margin-top: 1px;
+    }
+    .terminal-body .line .icon.success { background: rgba(166,227,161,0.18); color: #a6e3a1; }
+    .terminal-body .line .icon.warning { background: rgba(249,226,175,0.18); color: #f9e2af; }
+    .terminal-body .line .icon.error   { background: rgba(243,139,168,0.18); color: #f38ba8; }
+    .terminal-body .line .icon.info    { background: rgba(137,180,250,0.18); color: #89b4fa; }
+    .terminal-body .line .icon.pending{ background: rgba(108,112,134,0.18); color: #6c7086; }
+    .terminal-body .line .icon.pending::after {
+      content: ''; width: 10px; height: 10px; border-radius: 50%;
+      border: 1.5px solid #6c7086; border-top-color: transparent;
+      animation: aops-spin 0.8s linear infinite;
+    }
+    .terminal-body .line .body {
+      flex: 1; min-width: 0; color: #cdd6f4;
+    }
+    .terminal-body .line .body .name {
+      color: #cba6f7; font-weight: 700;
+    }
+    .terminal-body .line .body .svc {
+      color: #6c7086; font-size: 11px;
+    }
+    .terminal-body .line .body .duration {
+      color: #89b4fa; font-size: 11px; margin-left: 8px;
+    }
+    .terminal-body .line .body .snippet {
+      color: #a6adcff; font-size: 11.5px; margin-top: 2px;
+      padding-left: 12px; border-left: 2px solid #313244;
+      word-break: break-word;
+    }
+    .terminal-body .empty {
+      color: #6c7086; font-style: italic; text-align: center;
+      padding: 60px 20px;
+    }
+    .terminal-body .warmup {
+      color: var(--warn); padding: 8px 12px;
+      background: rgba(251,191,36,0.08);
+      border-left: 3px solid var(--warn);
+      border-radius: 0 4px 4px 0;
+      margin-bottom: 8px;
+    }
+    .terminal-body .warmup[hidden] { display: none; }
+
+    /* Summary card — PRD §3.3.3 */
+    .summary-card {
+      margin-top: 18px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 22px;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .summary-card.visible { opacity: 1; transform: translateY(0); }
+    .summary-card[hidden] { display: none; }
+    .summary-card h3 {
+      font-size: 14px; font-weight: 700; margin-bottom: 14px;
+      color: var(--text); display: flex; align-items: center; gap: 8px;
+    }
+    .summary-card .grid4 {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 720px) { .summary-card .grid4 { grid-template-columns: repeat(2, 1fr); } }
+    .summary-card .stat {
+      background: var(--bg-soft); border-radius: 8px; padding: 12px;
+    }
+    .summary-card .stat .lbl {
+      font-size: 11px; color: var(--text-mute);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+    .summary-card .stat .val {
+      font-family: var(--mono); font-size: 20px; font-weight: 700;
+      color: var(--text);
+    }
+    .summary-card .stat .val.good { color: var(--good); }
+    .summary-card .stat .val.bad  { color: var(--bad); }
+    .summary-card .stat .val.warn { color: var(--warn); }
+    .summary-card .health-row {
+      display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 560px) { .summary-card .health-row { grid-template-columns: 1fr; } }
+    .summary-card .health-block {
+      background: var(--bg-soft); padding: 14px; border-radius: 8px; text-align: center;
+    }
+    .summary-card .health-block .lbl {
+      font-size: 11px; color: var(--text-mute); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 6px;
+    }
+    .summary-card .health-block .grade {
+      font-family: var(--mono); font-size: 36px; font-weight: 800;
+      line-height: 1;
+    }
+    .summary-card .health-block .score {
+      font-size: 12px; color: var(--text-dim); margin-top: 4px;
+    }
+    .summary-card .health-block.before .grade { color: var(--bad); }
+    .summary-card .health-block.after  .grade { color: var(--good); }
+    .summary-card .arrow {
+      font-size: 24px; color: var(--text-mute); text-align: center;
+    }
+    .summary-card .arrow .delta {
+      display: block; font-size: 11px; font-family: var(--mono);
+      color: var(--good); margin-top: 2px;
+    }
+    /* Slack card preview — matches the look of services/mock-slack/templates/slack_card.html */
+    .slack-preview {
+      background: #1a1d21; border-radius: 8px; overflow: hidden;
+      border: 1px solid #2c2f33;
+    }
+    .slack-preview .head {
+      padding: 12px 14px; border-bottom: 1px solid #2c2f33;
+      color: #9fa0a4; font-size: 12px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .slack-preview .head b { color: #fff; font-size: 14px; }
+    .slack-preview .msg { padding: 12px 14px; }
+    .slack-preview .msg .row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    }
+    .slack-preview .avatar {
+      width: 32px; height: 32px; border-radius: 4px;
+      background: #5d3bf2; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 12px;
+    }
+    .slack-preview .user { color: #fff; font-weight: 700; font-size: 13px; }
+    .slack-preview .ts { color: #9fa0a4; font-size: 11px; margin-left: auto; }
+    .slack-preview .card-body {
+      background: #2c2f36; border-left: 4px solid #ff5c5c;
+      border-radius: 6px; padding: 12px 14px;
+    }
+    .slack-preview .card-title {
+      color: #fff; font-weight: 700; font-size: 13px; margin-bottom: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .slack-preview .card-meta {
+      color: #9fa0a4; font-size: 11px; margin-bottom: 8px;
+    }
+    .slack-preview .card-meta code {
+      background: #1a1d21; color: #7dceff; padding: 1px 5px; border-radius: 3px;
+      font-size: 11px;
+    }
+    .slack-preview .prov {
+      display: inline-block; padding: 1px 7px; border-radius: 10px;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+      vertical-align: middle;
+    }
+    .slack-preview .prov-fixtures {
+      background: #3d2f0f; color: #fbbf24; border: 1px solid #6b551f;
+    }
+    .slack-preview .prov-live {
+      background: #0f3d24; color: #4ade80; border: 1px solid #1f6b3f;
+    }
+    .slack-preview .plan {
+      color: #d0d0d0; font-size: 12px; line-height: 1.5;
+      padding: 8px 10px; background: #1a1d21; border-radius: 4px;
+      margin-top: 6px;
+    }
+    .slack-preview .plan code {
+      background: #2c2f36; color: #7dceff; padding: 1px 5px; border-radius: 3px;
+      font-size: 11px;
+    }
+
+    /* Error + retry — PRD §3.6 */
+    .live-trigger .error-banner {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: rgba(248,113,113,0.08);
+      border: 1px solid rgba(248,113,113,0.4);
+      border-radius: 8px;
+      color: var(--bad); font-size: 13px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .live-trigger .error-banner[hidden] { display: none; }
+    .live-trigger .error-banner button {
+      margin-left: auto;
+      padding: 6px 12px; border-radius: 6px;
+      background: var(--bad); color: white;
+      border: none; font-size: 12px; font-weight: 600;
+      cursor: pointer; font-family: var(--sans);
+    }
+    .live-trigger .error-banner button:hover { opacity: 0.85; }
+
   </style>
 </head>
 <body>
@@ -508,6 +798,9 @@
       all open-source, all self-hosted, fully air-gapped capable.
     </p>
     <div class="hero-actions fade fade-4">
+      <button id="aops-trigger-btn" class="btn-trigger" type="button" aria-label="Fire the A.O.P.S. pipeline">
+        <span class="btn-label">⚡ Fire the Pipeline</span>
+      </button>
       <a class="btn btn-primary" href="#demo">
         ▶ Watch the 30s demo
       </a>
@@ -525,6 +818,90 @@
       <div class="metric"><div class="num">15/15</div><div class="lbl">UAT pass</div></div>
       <div class="metric"><div class="num">~55ms</div><div class="lbl">Sandbox E2E</div></div>
       <div class="metric"><div class="num">1.5-4s</div><div class="lbl">Real E2E</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== LIVE TRIGGER (Touchpoint 1 — PRD §3) ==================== -->
+<section id="live-trigger" class="live-trigger" hidden>
+  <div class="wrap">
+    <div class="lead-row">
+      <h2>Live sandbox run</h2>
+      <span class="cached-pill" id="aops-cached-pill" hidden>cached demo</span>
+      <span style="color: var(--text-mute); font-size: 13px;">
+        Real Prometheus → n8n → Popeye → Dify-lite → Remediation → Slack, driven from the bundled <code style="color: var(--accent-2); font-size: 12px;">cluster_data.py</code> fixtures.
+      </span>
+    </div>
+
+    <div class="terminal-panel">
+      <div class="terminal-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">aops-sandbox · live pipeline</span>
+        <span class="run-id" id="aops-run-id">run: —</span>
+      </div>
+      <div class="terminal-body" id="aops-terminal" role="log" aria-live="polite" aria-atomic="false">
+        <div class="warmup" id="aops-warmup" hidden>Warming up serverless function…</div>
+        <div class="empty" id="aops-terminal-empty">Click “Fire the Pipeline” to start a real sandbox run.</div>
+      </div>
+    </div>
+
+    <!-- Summary card (PRD §3.3.3) -->
+    <div class="summary-card" id="aops-summary" hidden>
+      <h3>
+        <span style="color: var(--good)">✓</span>
+        Pipeline complete
+        <span style="color: var(--text-mute); font-weight: 400; font-size: 12px; margin-left: 8px;" id="aops-summary-total"></span>
+      </h3>
+      <div class="grid4">
+        <div class="stat">
+          <div class="lbl">Total duration</div>
+          <div class="val" id="aops-stat-duration">—</div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Findings detected</div>
+          <div class="val bad" id="aops-stat-findings">—</div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Remediations applied</div>
+          <div class="val good" id="aops-stat-remediations">—</div>
+        </div>
+        <div class="stat">
+          <div class="lbl">Data source</div>
+          <div class="val warn" id="aops-stat-source" style="font-size: 13px; text-transform: uppercase;">—</div>
+        </div>
+      </div>
+
+      <div class="health-row">
+        <div class="health-block before">
+          <div class="lbl">Health before</div>
+          <div class="grade" id="aops-health-before-grade">—</div>
+          <div class="score" id="aops-health-before-score">—</div>
+        </div>
+        <div class="arrow">
+          →
+          <span class="delta" id="aops-health-delta"></span>
+        </div>
+        <div class="health-block after">
+          <div class="lbl">Health after</div>
+          <div class="grade" id="aops-health-after-grade">—</div>
+          <div class="score" id="aops-health-after-score">—</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top: 18px;">
+        <span style="color: var(--accent-3)">▢</span>
+        Slack card preview
+      </h3>
+      <div class="slack-preview" id="aops-slack-preview">
+        <!-- filled in by JS -->
+      </div>
+    </div>
+
+    <!-- Error / retry (PRD §3.6) -->
+    <div class="error-banner" id="aops-error" hidden>
+      <span>⚠ </span>
+      <span id="aops-error-msg">Pipeline failed to start.</span>
+      <button type="button" id="aops-retry-btn">Retry</button>
     </div>
   </div>
 </section>
@@ -855,6 +1232,381 @@
     });
   });
 </script>
+
+<script>
+  // ===========================================================================
+  // A.O.P.S. Live Trigger — Touchpoint 1 (PRD §3)
+  //
+  // Drives POST /api/sandbox and progressively renders each pipeline stage
+  // in the terminal panel, then the summary card with the Slack preview.
+  //
+  // PRD §3.6 edge cases handled:
+  //   - API timeout > 10s        → timeout message + retry button
+  //   - Concurrent trigger clicks → latest click wins, prior fetch is aborted
+  //   - Cold start latency > 2s  → "Warming up..." message
+  //   - Sandbox unavailable      → fall back to cached response, labelled
+  // ===========================================================================
+  (function () {
+    const API_TIMEOUT_MS = 10_000;     // PRD §3.6 case 1
+    const COLD_START_THRESHOLD_MS = 2_000;  // PRD §3.6 case 3
+
+    const btn = document.getElementById('aops-trigger-btn');
+    const btnLabel = btn.querySelector('.btn-label');
+    const section = document.getElementById('live-trigger');
+    const terminal = document.getElementById('aops-terminal');
+    const terminalEmpty = document.getElementById('aops-terminal-empty');
+    const warmup = document.getElementById('aops-warmup');
+    const runIdEl = document.getElementById('aops-run-id');
+    const summary = document.getElementById('aops-summary');
+    const summaryTotal = document.getElementById('aops-summary-total');
+    const cachedPill = document.getElementById('aops-cached-pill');
+    const errorBanner = document.getElementById('aops-error');
+    const errorMsg = document.getElementById('aops-error-msg');
+    const retryBtn = document.getElementById('aops-retry-btn');
+
+    let inFlight = null;       // AbortController for the current request
+    let lastRunId = null;      // PRD §3.6 case 2: only latest result is displayed
+
+    // ---- UI state helpers ----
+    function setButtonState(state) {
+      // 'idle' | 'running' | 'done'
+      btn.disabled = state === 'running';
+      if (state === 'running') {
+        btnLabel.innerHTML = '<span class="spin"></span> Running…';
+      } else if (state === 'done') {
+        btnLabel.innerHTML = '<span class="pulse-dot"></span> Run Again';
+      } else {
+        btnLabel.textContent = '⚡ Fire the Pipeline';
+      }
+    }
+
+    function revealSection() {
+      if (section.hasAttribute('hidden')) {
+        section.removeAttribute('hidden');
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function clearTerminal() {
+      // Preserve the warmup element, remove all .line elements.
+      terminal.querySelectorAll('.line').forEach(el => el.remove());
+      if (terminalEmpty) terminalEmpty.style.display = 'none';
+    }
+
+    function appendLine({ icon = 'success', name, service, durationMs, snippet }) {
+      const line = document.createElement('div');
+      line.className = 'line';
+
+      const iconEl = document.createElement('span');
+      iconEl.className = `icon ${icon}`;
+      if (icon === 'success') iconEl.textContent = '✓';
+      else if (icon === 'warning') iconEl.textContent = '!';
+      else if (icon === 'error') iconEl.textContent = '✗';
+      else if (icon === 'info') iconEl.textContent = 'i';
+      // 'pending' uses the ::after spinner, no text content
+
+      const body = document.createElement('div');
+      body.className = 'body';
+
+      const head = document.createElement('div');
+      const nameEl = document.createElement('span');
+      nameEl.className = 'name';
+      nameEl.textContent = name;
+      head.appendChild(nameEl);
+      if (service) {
+        const svcEl = document.createElement('span');
+        svcEl.className = 'svc';
+        svcEl.textContent = ' — ' + service;
+        head.appendChild(svcEl);
+      }
+      if (typeof durationMs === 'number') {
+        const durEl = document.createElement('span');
+        durEl.className = 'duration';
+        durEl.textContent = durationMs + 'ms';
+        head.appendChild(durEl);
+      }
+      body.appendChild(head);
+
+      if (snippet) {
+        const snip = document.createElement('div');
+        snip.className = 'snippet';
+        snip.textContent = snippet;
+        body.appendChild(snip);
+      }
+
+      line.appendChild(iconEl);
+      line.appendChild(body);
+      terminal.appendChild(line);
+
+      // Auto-scroll
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function appendPendingStage(name, service) {
+      appendLine({ icon: 'pending', name, service, durationMs: null, snippet: 'executing…' });
+    }
+
+    function markStageComplete(lineEl, durationMs, snippet) {
+      // Replace the pending icon + snippet with the final state.
+      const icon = lineEl.querySelector('.icon');
+      icon.classList.remove('pending');
+      icon.classList.add('success');
+      icon.textContent = '✓';
+      // Update snippet
+      const snip = lineEl.querySelector('.snippet');
+      if (snip) snip.textContent = snippet;
+      // Update duration
+      const body = lineEl.querySelector('.body');
+      let dur = body.querySelector('.duration');
+      if (!dur) {
+        dur = document.createElement('span');
+        dur.className = 'duration';
+        body.querySelector('div').appendChild(dur);
+      }
+      dur.textContent = durationMs + 'ms';
+    }
+
+    function showSummary(response) {
+      const s = response.summary || {};
+      const sc = response.slack_card || {};
+
+      summaryTotal.textContent = `· ${response.total_duration_ms}ms total · run ${response.run_id.slice(0,8)}`;
+      document.getElementById('aops-stat-duration').textContent = response.total_duration_ms + 'ms';
+      document.getElementById('aops-stat-findings').textContent = s.findings_detected ?? 0;
+      document.getElementById('aops-stat-remediations').textContent = s.remediations_applied ?? 0;
+      document.getElementById('aops-stat-source').textContent = (s.data_source || '—').toUpperCase();
+
+      const before = s.health_before || {};
+      const after  = s.health_after || {};
+      document.getElementById('aops-health-before-grade').textContent = before.grade || '—';
+      document.getElementById('aops-health-before-score').textContent = (before.score ?? 0) + '/100';
+      document.getElementById('aops-health-after-grade').textContent = after.grade || '—';
+      document.getElementById('aops-health-after-score').textContent = (after.score ?? 0) + '/100';
+      const deltaScore = (after.score ?? 0) - (before.score ?? 0);
+      document.getElementById('aops-health-delta').textContent =
+        (deltaScore >= 0 ? '+' : '') + deltaScore + ' pts';
+
+      // Cached pill
+      cachedPill.hidden = !response.cached;
+
+      // Slack preview
+      const provClass = sc.provenance_class || 'prov-fixtures';
+      const slackHtml = `
+        <div class="head">
+          <b># devops-alerts</b>
+          <span style="margin-left: auto;">A.O.P.S. · 1 alert · last update ${sc.ts || new Date().toISOString()}</span>
+        </div>
+        <div class="msg">
+          <div class="row">
+            <div class="avatar">AU</div>
+            <div class="user">AURA-SRE Bot</div>
+            <div class="ts">${sc.ts || ''}</div>
+          </div>
+          <div class="card-body">
+            <div class="card-title">
+              <span style="color: #ff5c5c">⚠</span>
+              ${sc.card_title || 'PaymentAPIHighErrorRate'}
+            </div>
+            <div class="card-meta">
+              namespace: <code>payment-prod</code> ·
+              severity: <code>critical</code> ·
+              score: <code>${sc.score ?? 0}/100 (${sc.grade || 'F'})</code> ·
+              <span class="prov ${provClass}">${sc.data_source || 'fixtures'}</span>
+              <span style="opacity: 0.55; margin-left: 4px;">${sc.engine || 'builtin-analyzers'}</span>
+            </div>
+            <div class="plan">
+              ✓ <strong>Plan applied:</strong> ${sc.plan_steps || 0} remediation step(s), all dry-run verified against the executor allowlist.<br>
+              <code>kubectl set image deployment/payment-api api=payments-api:v2.3</code><br>
+              <code>kubectl cordon worker-prod-02</code><br>
+              <code>kubectl apply -f storageclass-fast-ssd.yaml</code>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('aops-slack-preview').innerHTML = slackHtml;
+
+      summary.hidden = false;
+      // Force reflow so the transition runs
+      void summary.offsetWidth;
+      summary.classList.add('visible');
+    }
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorBanner.hidden = false;
+    }
+
+    function hideError() {
+      errorBanner.hidden = true;
+    }
+
+    // ---- Stage snippet generators ----
+    function stageSnippet(stageName, output) {
+      if (stageName === 'prometheus') {
+        return `alert=${output.alert} severity=${output.severity} value=${output.value} — ${output.summary}`;
+      }
+      if (stageName === 'n8n') {
+        return `workflow=${output.workflow} nodes=${output.nodes_executed} webhook_received=true`;
+      }
+      if (stageName === 'popeye') {
+        const fbs = output.findings_by_severity || {};
+        return `score=${output.score}/100 grade=${output.grade} findings=${output.findings_count} ` +
+               `(errors=${fbs.error || 0} warnings=${fbs.warning || 0} info=${fbs.info || 0})`;
+      }
+      if (stageName === 'dify-lite') {
+        return `backend=${output.backend} plan_steps=${output.plan_steps.length} findings_input=${output.findings_input}`;
+      }
+      if (stageName === 'remediation') {
+        return `mode=${output.mode} applied=${output.applied_steps} dry_run=${output.dry_run} allowlist_enforced=${output.allowlist_enforced}`;
+      }
+      if (stageName === 'slack') {
+        return `channel=${output.channel} title="${output.card_title}" score=${output.score}/100 (${output.grade})`;
+      }
+      return '';
+    }
+
+    // ---- Main pipeline runner ----
+    async function firePipeline() {
+      // PRD §3.6 case 2: abort any in-flight request so only the latest
+      // click's result is displayed.
+      if (inFlight) {
+        inFlight.abort();
+        inFlight = null;
+      }
+
+      hideError();
+      revealSection();
+      clearTerminal();
+      summary.hidden = true;
+      summary.classList.remove('visible');
+
+      setButtonState('running');
+      runIdEl.textContent = 'run: starting…';
+
+      // PRD §3.6 case 3: cold-start marker — show "Warming up..." if the
+      // request takes longer than COLD_START_THRESHOLD_MS.
+      const startedAt = performance.now();
+      const warmupTimer = setTimeout(() => {
+        warmup.hidden = false;
+      }, COLD_START_THRESHOLD_MS);
+
+      // Pre-render the pending stages (PRD §3.5: stages render progressively).
+      const stageLines = {};
+      ['prometheus', 'n8n', 'popeye', 'dify-lite', 'remediation', 'slack'].forEach((name, i) => {
+        const services = {
+          prometheus: 'Prometheus + Alertmanager',
+          n8n: 'n8n-runner (workflow executor)',
+          popeye: 'Popeye scanner (14 builtin analyzers)',
+          'dify-lite': 'Dify-lite (agentic reasoning)',
+          remediation: 'Remediation executor (kubectl, dry-run)',
+          slack: 'Mock Slack (#devops-alerts)',
+        };
+        // Stagger the appearance so it feels like real-time execution.
+        setTimeout(() => {
+          // Use the lastRunId guard so a late-firing timeout from an aborted
+          // run doesn't pollute the terminal.
+          appendPendingStage(name, services[name]);
+        }, i * 120);
+      });
+
+      const controller = new AbortController();
+      inFlight = controller;
+
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+      try {
+        const res = await fetch('/api/sandbox', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' },
+        });
+        clearTimeout(timeoutId);
+        clearTimeout(warmupTimer);
+        warmup.hidden = true;
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        const elapsedMs = Math.round(performance.now() - startedAt);
+
+        // PRD §3.6 case 2: only render if this is still the latest click.
+        if (inFlight !== controller) return;
+
+        // Mark each pending stage as complete with the real duration + snippet.
+        const stageOrder = ['prometheus', 'n8n', 'popeye', 'dify-lite', 'remediation', 'slack'];
+        const stageMap = {};
+        (data.stages || []).forEach(s => { stageMap[s.name] = s; });
+        stageOrder.forEach((name, i) => {
+          const stage = stageMap[name];
+          if (!stage) return;
+          // Find the pending line we added earlier — it's the i-th .line in the terminal.
+          const lines = terminal.querySelectorAll('.line');
+          const targetLine = lines[i];
+          if (targetLine) {
+            // Small delay per stage so completion appears progressive.
+            setTimeout(() => {
+              if (inFlight !== controller) return;
+              const snippet = stageSnippet(name, stage.output || {});
+              const icon = stage.status === 'success' ? 'success'
+                         : stage.status === 'warning' ? 'warning'
+                         : 'error';
+              // Replace the line entirely so the icon switches from pending to ✓/!/✗.
+              targetLine.querySelector('.icon').className = `icon ${icon}`;
+              targetLine.querySelector('.icon').textContent =
+                icon === 'success' ? '✓' : icon === 'warning' ? '!' : '✗';
+              const snip = targetLine.querySelector('.snippet');
+              if (snip) snip.textContent = snippet || 'done';
+              const body = targetLine.querySelector('.body > div');
+              let dur = body.querySelector('.duration');
+              if (!dur) {
+                dur = document.createElement('span');
+                dur.className = 'duration';
+                body.appendChild(dur);
+              }
+              dur.textContent = stage.duration_ms + 'ms';
+            }, i * 200);
+          }
+        });
+
+        // Update run id + show summary after the last stage completes.
+        runIdEl.textContent = 'run: ' + (data.run_id || '').slice(0, 8);
+        lastRunId = data.run_id;
+
+        setTimeout(() => {
+          if (inFlight !== controller) return;
+          showSummary(data);
+          setButtonState('done');
+          inFlight = null;
+        }, stageOrder.length * 200 + 200);
+
+      } catch (err) {
+        clearTimeout(timeoutId);
+        clearTimeout(warmupTimer);
+        warmup.hidden = true;
+
+        if (err.name === 'AbortError') {
+          // Either user aborted (clicked again) or our timeout fired.
+          if (inFlight === controller) {
+            showError('Pipeline timed out after 10s. The serverless function may be cold-starting — try again.');
+            setButtonState('idle');
+            inFlight = null;
+          }
+          // If inFlight !== controller, the user clicked again; do nothing.
+        } else {
+          showError('Pipeline failed: ' + (err.message || String(err)));
+          setButtonState('idle');
+          inFlight = null;
+        }
+      }
+    }
+
+    btn.addEventListener('click', firePipeline);
+    retryBtn.addEventListener('click', firePipeline);
+  })();
+</script>
+
 
 </body>
 </html>
