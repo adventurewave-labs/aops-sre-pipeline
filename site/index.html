@@ -429,6 +429,169 @@
       color: var(--text);
     }
 
+    /* ============ interactive trigger ============ */
+    .trigger-section {
+      padding: 60px 0 40px;
+      text-align: center;
+    }
+    .trigger-section h2 {
+      font-size: 32px; font-weight: 700; letter-spacing: -0.01em;
+      margin-bottom: 12px;
+    }
+    .trigger-section .lead {
+      color: var(--text-dim); font-size: 16px;
+      max-width: 580px; margin: 0 auto 36px;
+    }
+    .fire-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 28px; border-radius: 10px;
+      font-size: 15px; font-weight: 700; font-family: var(--sans);
+      background: var(--accent); color: white;
+      border: none; cursor: pointer;
+      box-shadow: 0 8px 24px -8px rgba(124,92,255,0.5);
+      transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+      outline: none;
+    }
+    .fire-btn:hover:not(:disabled) {
+      transform: scale(1.02);
+      box-shadow: 0 12px 32px -8px rgba(124,92,255,0.6);
+    }
+    .fire-btn:focus-visible {
+      outline: 2px solid var(--accent-2);
+      outline-offset: 3px;
+    }
+    .fire-btn:disabled {
+      opacity: 0.65; cursor: not-allowed; transform: none;
+    }
+    .fire-btn .spinner {
+      width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white; border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+    }
+    .fire-btn.running .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* terminal panel */
+    .terminal-panel {
+      max-width: 980px; margin: 28px auto 0;
+      background: #1E1E2E; border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+      display: none; /* shown after first trigger */
+      box-shadow: 0 20px 60px -15px rgba(0,0,0,0.5);
+    }
+    .terminal-panel.visible { display: block; animation: fadeUp 0.4s ease-out both; }
+    .terminal-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px;
+      background: rgba(0,0,0,0.3);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .terminal-bar .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .terminal-bar .dot.r { background: #ff5f57; }
+    .terminal-bar .dot.y { background: #febc2e; }
+    .terminal-bar .dot.g { background: #28c840; }
+    .terminal-bar .title {
+      flex: 1; text-align: center;
+      font-family: var(--mono); font-size: 12px; color: var(--text-mute);
+    }
+    .terminal-body {
+      padding: 16px 20px; min-height: 120px; max-height: 340px;
+      overflow-y: auto; font-family: var(--mono);
+      font-size: 13px; line-height: 1.7;
+      color: var(--text-dim);
+    }
+    .terminal-body::-webkit-scrollbar { width: 6px; }
+    .terminal-body::-webkit-scrollbar-track { background: transparent; }
+    .terminal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    .stage-line {
+      opacity: 0; animation: stageAppear 0.3s ease-out forwards;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    @keyframes stageAppear { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+    .stage-line .icon-ok { color: var(--good); }
+    .stage-line .icon-warn { color: var(--warn); }
+    .stage-line .icon-err { color: var(--bad); }
+    .stage-line .stage-name { color: var(--accent-2); font-weight: 600; }
+    .stage-line .stage-dur { color: var(--text-mute); }
+    .stage-line .stage-msg { color: var(--text-dim); }
+    .stage-line-error .stage-msg { color: var(--bad); }
+
+    /* summary card */
+    .summary-panel {
+      max-width: 980px; margin: 20px auto 0;
+      display: none;
+    }
+    .summary-panel.visible { display: grid; animation: fadeUp 0.4s ease-out both; }
+    .summary-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+    }
+    @media (max-width: 620px) { .summary-grid { grid-template-columns: 1fr; } }
+    .summary-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px; text-align: left;
+    }
+    .summary-card h4 {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-mute); margin-bottom: 12px;
+    }
+    .summary-card .val {
+      font-family: var(--mono); font-size: 28px; font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .summary-card .sub {
+      font-size: 13px; color: var(--text-dim); line-height: 1.5;
+    }
+    .health-arrow {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-weight: 700;
+    }
+    .health-before { color: var(--bad); }
+    .health-after { color: var(--good); }
+    .health-delta { color: var(--good); font-size: 14px; }
+
+    /* slack card preview */
+    .slack-preview {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px;
+      grid-column: 1 / -1;
+    }
+    .slack-preview h4 {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-mute); margin-bottom: 12px;
+    }
+    .slack-preview .slack-row {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      font-size: 13px; color: var(--text-dim); line-height: 1.6;
+    }
+    .slack-preview .slack-row strong { color: var(--text); }
+    .slack-preview .slack-sev {
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 4px;
+      background: var(--bad); color: white; text-transform: uppercase;
+    }
+
+    /* error state */
+    .trigger-error {
+      margin-top: 16px; font-size: 14px; color: var(--bad);
+      display: none;
+    }
+    .trigger-error.visible { display: block; }
+    .retry-btn {
+      margin-top: 8px; padding: 8px 16px; border-radius: 7px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      transition: background 0.15s, border-color 0.2s;
+    }
+    .retry-btn:hover { background: var(--bg-soft); border-color: var(--text-mute); }
+    .retry-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+    @media (max-width: 320px) {
+      .fire-btn { padding: 12px 18px; font-size: 13px; }
+      .terminal-body { font-size: 11px; padding: 12px 14px; }
+      .summary-card .val { font-size: 22px; }
+    }
+
     /* ============ codespaces CTA ============ */
     .codespaces-cta {
       text-align: center;
@@ -525,6 +688,61 @@
       <div class="metric"><div class="num">15/15</div><div class="lbl">UAT pass</div></div>
       <div class="metric"><div class="num">~55ms</div><div class="lbl">Sandbox E2E</div></div>
       <div class="metric"><div class="num">1.5-4s</div><div class="lbl">Real E2E</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== INTERACTIVE TRIGGER ==================== -->
+<section id="trigger" class="trigger-section">
+  <div class="wrap">
+    <h2>Fire the Pipeline</h2>
+    <p class="lead">Trigger the A.O.P.S. sandbox pipeline right here and watch each stage execute live — Prometheus → n8n → Popeye → LLM → kubectl → Slack.</p>
+    <button id="fireBtn" class="fire-btn" type="button" aria-label="Fire the A.O.P.S. pipeline">
+      <span class="spinner"></span>
+      <span class="btn-text">🔥 Fire the Pipeline</span>
+    </button>
+    <div id="triggerError" class="trigger-error">
+      <span id="errorMsg"></span>
+      <br>
+      <button id="retryBtn" class="retry-btn" type="button">Retry</button>
+    </div>
+
+    <div id="terminalPanel" class="terminal-panel" role="log" aria-live="polite" aria-label="Pipeline output">
+      <div class="terminal-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title" id="terminalTitle">aops-sandbox — pipeline output</span>
+      </div>
+      <div class="terminal-body" id="terminalBody"></div>
+    </div>
+
+    <div id="summaryPanel" class="summary-panel">
+      <div class="summary-grid">
+        <div class="summary-card">
+          <h4>Duration</h4>
+          <div class="val" id="sumDuration" style="color: var(--accent-2)">—</div>
+          <div class="sub" id="sumDurationSub">sandbox mode</div>
+        </div>
+        <div class="summary-card">
+          <h4>Findings Detected</h4>
+          <div class="val" id="sumFindings" style="color: var(--warn)">—</div>
+          <div class="sub" id="sumFindingsSub">Popeye scan results</div>
+        </div>
+        <div class="summary-card">
+          <h4>Health Score</h4>
+          <div class="val">
+            <span class="health-arrow">
+              <span class="health-before" id="sumHealthBefore">—</span>
+              <span style="color:var(--text-mute)">→</span>
+              <span class="health-after" id="sumHealthAfter">—</span>
+            </span>
+          </div>
+          <div class="sub" id="sumHealthSub">Popeye score improvement</div>
+        </div>
+        <div class="slack-preview">
+          <h4>Slack Card Preview</h4>
+          <div class="slack-row" id="slackPreview">—</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -854,6 +1072,170 @@
       }
     });
   });
+
+  // ========================================================================
+  // A.O.P.S. Interactive Pipeline Trigger
+  // ========================================================================
+  (function() {
+    const fireBtn = document.getElementById('fireBtn');
+    const btnText = fireBtn.querySelector('.btn-text');
+    const terminalPanel = document.getElementById('terminalPanel');
+    const terminalBody = document.getElementById('terminalBody');
+    const terminalTitle = document.getElementById('terminalTitle');
+    const summaryPanel = document.getElementById('summaryPanel');
+    const triggerError = document.getElementById('triggerError');
+    const errorMsg = document.getElementById('errorMsg');
+    const retryBtn = document.getElementById('retryBtn');
+
+    let isRunning = false;
+    const API_URL = '/api/trigger-alert';
+    const TIMEOUT_MS = 10000;
+    const STAGE_DELAY_MS = 300;
+
+    function setButtonState(state) {
+      fireBtn.disabled = state === 'running';
+      fireBtn.classList.toggle('running', state === 'running');
+      if (state === 'idle') btnText.textContent = '🔥 Fire the Pipeline';
+      else if (state === 'running') btnText.textContent = 'Running...';
+      else if (state === 'done') btnText.textContent = '🔄 Run Again';
+    }
+
+    function hideError() {
+      triggerError.classList.remove('visible');
+    }
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      triggerError.classList.add('visible');
+    }
+
+    function addStageLine(stage, delay) {
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const iconMap = {
+            success: '<span class="icon-ok">✓</span>',
+            warning: '<span class="icon-warn">⚠</span>',
+            error:   '<span class="icon-err">✗</span>',
+          };
+          const icon = iconMap[stage.status] || iconMap.error;
+          const line = document.createElement('div');
+          line.className = 'stage-line' + (stage.status === 'error' ? ' stage-line-error' : '');
+          line.innerHTML =
+            icon +
+            ' <span class="stage-name">' + escapeHtml(stage.name) + '</span>' +
+            ' <span class="stage-dur">.... ' + stage.duration_ms + 'ms</span>' +
+            ' — <span class="stage-msg">' + escapeHtml(stage.output) + '</span>';
+          terminalBody.appendChild(line);
+          terminalBody.scrollTop = terminalBody.scrollHeight;
+          resolve();
+        }, delay);
+      });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function renderSummary(data) {
+      const s = data.summary;
+      const sc = data.slack_card;
+
+      document.getElementById('sumDuration').textContent = data.total_duration_ms + 'ms';
+      document.getElementById('sumDurationSub').textContent =
+        data.mode + ' mode · run ' + data.run_id.slice(0, 16) + '…';
+
+      document.getElementById('sumFindings').textContent = s.findings_detected;
+      const sev = s.findings_by_severity;
+      document.getElementById('sumFindingsSub').textContent =
+        sev.error + ' error · ' + sev.warning + ' warning · ' + sev.info + ' info';
+
+      document.getElementById('sumHealthBefore').textContent =
+        s.health_before + ' (' + s.health_before_grade + ')';
+      document.getElementById('sumHealthAfter').textContent =
+        s.health_after + ' (' + s.health_after_grade + ')';
+      const delta = s.health_after - s.health_before;
+      document.getElementById('sumHealthSub').textContent =
+        '+' + delta + ' score improvement (' + s.remediations_applied + ' remediations applied)';
+
+      // Slack preview
+      document.getElementById('slackPreview').innerHTML =
+        '<span class="slack-sev">' + escapeHtml(sc.status) + '</span> ' +
+        '<strong>' + escapeHtml(sc.title) + '</strong> ' +
+        '· ' + sc.findings + ' findings · ' + sc.remediated + ' remediated ' +
+        '· score ' + sc.score_before + '→' + sc.score_after +
+        ' (' + sc.grade_before + '→' + sc.grade_after + ')' +
+        ' · <span style="color:var(--text-mute)">channel ' + escapeHtml(sc.channel) + '</span>';
+
+      summaryPanel.classList.add('visible');
+    }
+
+    async function firePipeline() {
+      if (isRunning) return;
+      isRunning = true;
+      hideError();
+      setButtonState('running');
+
+      // Reset panels
+      terminalBody.innerHTML = '';
+      terminalPanel.classList.add('visible');
+      summaryPanel.classList.remove('visible');
+      terminalTitle.textContent = 'aops-sandbox — running...';
+
+      // Fetch with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+      let data;
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          throw new Error('API returned ' + res.status);
+        }
+        data = await res.json();
+      } catch (err) {
+        clearTimeout(timeoutId);
+        isRunning = false;
+        setButtonState('idle');
+        const msg = err.name === 'AbortError'
+          ? 'Pipeline timed out after ' + (TIMEOUT_MS / 1000) + 's'
+          : 'Failed to trigger pipeline: ' + err.message;
+        showError(msg);
+        terminalTitle.textContent = 'aops-sandbox — error';
+        return;
+      }
+
+      // Render stages progressively
+      terminalTitle.textContent = 'aops-sandbox — run ' + data.run_id.slice(0, 12) + '…';
+      for (let i = 0; i < data.stages.length; i++) {
+        await addStageLine(data.stages[i], STAGE_DELAY_MS);
+      }
+
+      // Render summary
+      renderSummary(data);
+      terminalTitle.textContent = 'aops-sandbox — completed in ' + data.total_duration_ms + 'ms';
+
+      isRunning = false;
+      setButtonState('done');
+    }
+
+    // Event listeners
+    fireBtn.addEventListener('click', firePipeline);
+    fireBtn.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        firePipeline();
+      }
+    });
+    retryBtn.addEventListener('click', firePipeline);
+  })();
 </script>
 
 </body>
