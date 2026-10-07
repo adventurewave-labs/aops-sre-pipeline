@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.svg" alt="aops-sre-pipeline — animated banner" width="100%"></p>
+
 # A.O.P.S. — Automated Off-the-shelf Pipeline SRE
 
 [![CI](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/adventurewave-labs/aops-sre-pipeline/actions/workflows/ci.yml)
