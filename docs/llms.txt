@@ -1,0 +1,10 @@
+# aops-sre-pipeline
+
+> Automated Off-the-shelf Pipeline SRE — Prometheus → n8n → Popeye-compatible scanner → LLM agent → Slack, with allowlist-gated remediation. Fixtures or a live kind cluster.
+
+aops-sre-pipeline is maintained by Adventure Wave Labs (The lab for agentic developer tooling).
+
+## Links
+
+- [Landing page](https://adventurewave-labs.github.io/aops-sre-pipeline/): overview, features, FAQ
+- [Source code](https://github.com/adventurewave-labs/aops-sre-pipeline): README, issues, releases
